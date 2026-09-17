@@ -9,9 +9,11 @@ import { MapControls, type InteractiveMapHandle } from '../InteractiveMap'
 import styles from './StoryMap.module.css'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? ''
-const MAPBOX_STYLE = 'mapbox://styles/pixonal/cmqzd3vp2003g01s7f4oy3af9'
-const CENTER: [number, number] = [54.3773, 24.4539]
-const ZOOM = 11.2
+const MAPBOX_STYLE = 'mapbox://styles/pixonal/cmgnqbyjf005g01sh9s510hi2'
+const CENTER: [number, number] = [54.345474, 24.476976]
+const ZOOM = 11.669772
+const PITCH = 72
+const BEARING = 0
 
 const iconBase = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/llumen-assets/map-icons`
 
@@ -99,7 +101,10 @@ export function StoryMap({ className, layers = DEFAULT_LAYERS }: StoryMapProps) 
   const handleRef = useRef<InteractiveMapHandle | null>(null)
   const [ready, setReady] = useState(false)
   const layersRef = useRef(layers)
-  layersRef.current = layers
+
+  useEffect(() => {
+    layersRef.current = layers
+  }, [layers])
 
   useEffect(() => {
     const el = containerRef.current
@@ -111,7 +116,14 @@ export function StoryMap({ className, layers = DEFAULT_LAYERS }: StoryMapProps) 
       style: MAPBOX_STYLE,
       center: CENTER,
       zoom: ZOOM,
+      pitch: PITCH,
+      bearing: BEARING,
       attributionControl: false,
+      dragPan: true,
+      scrollZoom: true,
+      touchZoomRotate: true,
+      doubleClickZoom: true,
+      keyboard: true,
     })
     map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right')
     mapRef.current = map
@@ -227,7 +239,7 @@ export function StoryMap({ className, layers = DEFAULT_LAYERS }: StoryMapProps) 
     handleRef.current = {
       zoomIn: () => map.zoomIn({ duration: 280 }),
       zoomOut: () => map.zoomOut({ duration: 280 }),
-      resetNorth: () => map.easeTo({ bearing: 0, pitch: 0, duration: 420 }),
+      resetNorth: () => map.easeTo({ bearing: BEARING, pitch: PITCH, duration: 420 }),
     }
 
     return () => {

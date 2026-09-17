@@ -10,9 +10,18 @@ export type StorySlide = {
   title: string
   finding: string
   body: string
+  layout: 'sidebar' | 'full-width'
+  focusLayout: boolean
+  sidebarWidth: 'small' | 'large'
   aqi: number
   aqiLabel: string
   pollutants: StoryPollutant[]
+}
+
+export type StoryFilter = {
+  id: string
+  label: string
+  removable?: boolean
 }
 
 export type LandingStory = {
@@ -22,7 +31,8 @@ export type LandingStory = {
   kind: string
   sectionsLabel: string
   storyTitle: string
-  filters: { id: string; label: string; removable?: boolean }[]
+  description: string
+  filters: StoryFilter[]
   slides: StorySlide[]
 }
 
@@ -47,6 +57,9 @@ function makeSlides(prefix: string): StorySlide[] {
       title: 'Top Emissions Districts Stations AQI',
       finding: FINDING,
       body: FINDING,
+      layout: 'sidebar',
+      focusLayout: false,
+      sidebarWidth: 'large',
       aqi: 121,
       aqiLabel: 'Unhealthy for Sensitive Groups',
       pollutants: DEFAULT_POLLUTANTS,
@@ -57,6 +70,9 @@ function makeSlides(prefix: string): StorySlide[] {
       finding:
         'Heat intensity clusters along the Mussafah–ICAD industrial corridor, overlapping the highest NO2 readings from the prior quarter.',
       body: 'Industrial parcels adjacent to residential zones continue to drive elevated exposure windows during evening peak periods.',
+      layout: 'sidebar',
+      focusLayout: false,
+      sidebarWidth: 'large',
       aqi: 138,
       aqiLabel: 'Unhealthy for Sensitive Groups',
       pollutants: DEFAULT_POLLUTANTS,
@@ -67,6 +83,9 @@ function makeSlides(prefix: string): StorySlide[] {
       finding:
         'Idling vehicle clusters coincide with elevated PM2.5 pockets near port approach roads during morning freight windows.',
       body: 'Active fleet density remains high, but idle dwell time is the stronger local predictor for short-term AQI spikes.',
+      layout: 'sidebar',
+      focusLayout: false,
+      sidebarWidth: 'large',
       aqi: 112,
       aqiLabel: 'Unhealthy for Sensitive Groups',
       pollutants: DEFAULT_POLLUTANTS,
@@ -83,6 +102,8 @@ export const LANDING_STORIES: LandingStory[] = [
     kind: 'Story',
     sectionsLabel: '19 Sections',
     storyTitle: 'Potential Risks',
+    description:
+      'Explore the key environmental risks, air-quality indicators, and live map signals for this story.',
     filters: [
       { id: 'loc', label: 'Abu Dhabi' },
       { id: 'year', label: '2025–2026' },

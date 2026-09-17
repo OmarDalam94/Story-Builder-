@@ -1278,7 +1278,6 @@ export function CompactAssistantDemo() {
             }}
             onAsk={isHub ? openStoryAsk : undefined}
             agentOpen={open || hubStoryOpen}
-            headerEnd={uxSwitcher}
           />
         ) : (
           <LandingHomeDefault

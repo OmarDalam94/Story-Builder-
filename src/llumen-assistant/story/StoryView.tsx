@@ -2,7 +2,7 @@
  * Landing Story content type — Figma slide-landing-screen-map (3359:3802).
  * Full-page main content (not agent subcontext). Map from llumen-map-legend layers.
  */
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -19,7 +19,13 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { llumenAssets } from '../assets'
-import { getLandingStory, type LandingStory } from './storyDemoData'
+import { StoryEditPanel } from './StoryEditPanel'
+import {
+  getLandingStory,
+  type LandingStory,
+  type StoryFilter,
+  type StorySlide,
+} from './storyDemoData'
 import { StoryMap, type StoryMapLayerVisibility } from './StoryMap'
 import styles from './StoryView.module.css'
 
@@ -30,8 +36,6 @@ export type StoryViewProps = {
   onAsk?: (context: { story: LandingStory; slideIndex: number; sourceRect: DOMRect }) => void
   /** When the agent rail is open, hide the Ask icon. */
   agentOpen?: boolean
-  /** Prototype control slot in the top-right header. */
-  headerEnd?: ReactNode
 }
 
 function Chem({ name }: { name: string }) {
@@ -64,20 +68,49 @@ function filterIcon(id: string) {
   }
 }
 
-export function StoryView({ storyId, onBack, onAsk, agentOpen = false, headerEnd }: StoryViewProps) {
+function copySlide(slide: StorySlide): StorySlide {
+  return {
+    ...slide,
+    pollutants: slide.pollutants.map((pollutant) => ({ ...pollutant })),
+  }
+}
+
+function makeFilterMap(slides: StorySlide[], filters: StoryFilter[]) {
+  return Object.fromEntries(
+    slides.map((slide) => [slide.id, filters.map((filter) => ({ ...filter }))]),
+  ) as Record<string, StoryFilter[]>
+}
+
+export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryViewProps) {
   const story = useMemo(() => getLandingStory(storyId), [storyId])
+  const [storyTitle, setStoryTitle] = useState(story.storyTitle)
+  const [storyDescription, setStoryDescription] = useState(story.description)
   const [slideIndex, setSlideIndex] = useState(0)
+  const [slides, setSlides] = useState<StorySlide[]>(() => story.slides.map(copySlide))
+  const [filtersBySlide, setFiltersBySlide] = useState<Record<string, StoryFilter[]>>(() =>
+    makeFilterMap(story.slides, story.filters),
+  )
   const [legendOpen, setLegendOpen] = useState(true)
-  const [viewMode, setViewMode] = useState<'view' | 'edit'>('view')
+  const [editOpen, setEditOpen] = useState(false)
+  const [infoOpen, setInfoOpen] = useState(false)
   const [layers, setLayers] = useState<StoryMapLayerVisibility>({
     utilization: true,
     vehiclesActive: true,
     vehiclesIdling: true,
   })
 
-  const slide = story.slides[Math.min(slideIndex, story.slides.length - 1)]
-  const canPrev = slideIndex > 0
-  const canNext = slideIndex < story.slides.length - 1
+  const activeSlideIndex = Math.min(slideIndex, slides.length - 1)
+  const slide = slides[activeSlideIndex]
+  const filters = filtersBySlide[slide.id] ?? story.filters
+  const previewStory: LandingStory = {
+    ...story,
+    storyTitle,
+    description: storyDescription,
+    filters,
+    slides,
+  }
+  const canPrev = activeSlideIndex > 0
+  const canNext = activeSlideIndex < slides.length - 1
   const aqiPct = Math.min(100, Math.max(0, (slide.aqi / 500) * 100))
 
   return (
@@ -91,13 +124,36 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false, headerEnd
               <ArrowLeft size={20} weight="regular" aria-hidden />
             </button>
             <div className={styles.titleGroup}>
-              <h1 className={styles.storyTitle}>{story.storyTitle}</h1>
-              <Info size={18} weight="regular" className={styles.infoIcon} aria-hidden />
+              <h1 className={styles.storyTitle}>{storyTitle}</h1>
+              <button
+                type="button"
+                className={styles.infoBtn}
+                aria-label="Show Story description"
+                aria-expanded={infoOpen}
+                aria-describedby={infoOpen ? 'story-description' : undefined}
+                onClick={() => setInfoOpen((open) => !open)}
+              >
+                <Info size={18} weight="regular" aria-hidden />
+              </button>
+              {infoOpen ? (
+                <div id="story-description" className={styles.infoPopover} role="tooltip">
+                  {storyDescription || 'No description added.'}
+                </div>
+              ) : null}
             </div>
-            {headerEnd ? <div className={styles.headerEnd}>{headerEnd}</div> : null}
+            <button
+              type="button"
+              className={`${styles.editBtn}${editOpen ? ` ${styles.editBtnActive}` : ''}`}
+              aria-expanded={editOpen}
+              aria-controls="story-edit-panel"
+              onClick={() => setEditOpen((open) => !open)}
+            >
+              <PencilSimple size={16} weight="regular" aria-hidden />
+              <span>Edit</span>
+            </button>
           </div>
           <div className={styles.filters}>
-            {story.filters.map((f) => (
+            {filters.map((f) => (
               <span
                 key={f.id}
                 className={`${styles.filterPill}${f.removable ? ` ${styles.filterPillActive}` : ''}`}
@@ -115,8 +171,22 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false, headerEnd
           <div className={styles.headerRule} aria-hidden />
         </header>
 
-        <div className={styles.body}>
-          <aside className={styles.insight} aria-label="Story insight">
+        <div
+          className={`${styles.body}${slide.focusLayout ? ` ${styles.bodyFocus}` : ''}`}
+        >
+          <aside
+            className={[
+              styles.insight,
+              slide.layout === 'full-width' ? styles.insightFullWidth : '',
+              slide.layout === 'sidebar' && slide.sidebarWidth === 'small'
+                ? styles.insightSmall
+                : '',
+              slide.focusLayout ? styles.insightFocus : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            aria-label="Story insight"
+          >
             <div className={styles.insightCopy}>
               <h2 className={styles.slideHeading}>{slide.title}</h2>
               <p className={styles.finding}>{slide.finding}</p>
@@ -166,6 +236,78 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false, headerEnd
             </section>
           </aside>
         </div>
+
+        {editOpen ? (
+          <StoryEditPanel
+            storyTitle={storyTitle}
+            storyDescription={storyDescription}
+            slides={slides}
+            activeSlideIndex={activeSlideIndex}
+            filters={filters}
+            onStoryTitleChange={setStoryTitle}
+            onStoryDescriptionChange={setStoryDescription}
+            onSelectSlide={setSlideIndex}
+            onSlideChange={(nextSlide) =>
+              setSlides((items) =>
+                items.map((item) => (item.id === nextSlide.id ? nextSlide : item)),
+              )
+            }
+            onFiltersChange={(nextFilters) =>
+              setFiltersBySlide((current) => ({ ...current, [slide.id]: nextFilters }))
+            }
+            onAddSlide={() => {
+              const id = `${story.id}-slide-${Date.now()}`
+              const nextSlide = {
+                ...copySlide(slide),
+                id,
+                title: `Untitled slide ${slides.length + 1}`,
+              }
+              setSlides((items) => [...items, nextSlide])
+              setFiltersBySlide((current) => ({
+                ...current,
+                [id]: filters.map((filter) => ({ ...filter })),
+              }))
+              setSlideIndex(slides.length)
+            }}
+            onDuplicateSlide={() => {
+              const id = `${story.id}-slide-${Date.now()}`
+              const nextSlide = {
+                ...copySlide(slide),
+                id,
+                title: `${slide.title} copy`,
+              }
+              setSlides((items) => [...items, nextSlide])
+              setFiltersBySlide((current) => ({
+                ...current,
+                [id]: filters.map((filter) => ({ ...filter })),
+              }))
+              setSlideIndex(slides.length)
+            }}
+            onDeleteSlide={() => {
+              if (slides.length === 1) return
+              setSlides((items) => items.filter((item) => item.id !== slide.id))
+              setFiltersBySlide((current) => {
+                const next = { ...current }
+                delete next[slide.id]
+                return next
+              })
+              setSlideIndex(Math.max(0, activeSlideIndex - 1))
+            }}
+            onReset={() => {
+              setStoryTitle(story.storyTitle)
+              setStoryDescription(story.description)
+              setSlides(story.slides.map(copySlide))
+              setFiltersBySlide(makeFilterMap(story.slides, story.filters))
+              setSlideIndex(0)
+              setLayers({
+                utilization: true,
+                vehiclesActive: true,
+                vehiclesIdling: true,
+              })
+            }}
+            onClose={() => setEditOpen(false)}
+          />
+        ) : null}
 
         <div className={styles.mapData}>
           <button
@@ -240,7 +382,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false, headerEnd
               className={styles.askBtn}
               aria-label="Ask about this story"
               onClick={(event) =>
-                onAsk({ story, slideIndex, sourceRect: event.currentTarget.getBoundingClientRect() })
+                onAsk({
+                  story: previewStory,
+                  slideIndex: activeSlideIndex,
+                  sourceRect: event.currentTarget.getBoundingClientRect(),
+                })
               }
             >
               <img className={styles.askIcon} src={llumenAssets.launcherOrb} alt="" width={24} height={24} />
@@ -258,7 +404,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false, headerEnd
               <ArrowLeft size={20} weight="regular" aria-hidden />
             </button>
             <span className={styles.navCount}>
-              {slideIndex + 1}/{story.slides.length}
+              {activeSlideIndex + 1}/{slides.length}
             </span>
             <button
               type="button"
@@ -268,27 +414,6 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false, headerEnd
               onClick={() => canNext && setSlideIndex((i) => i + 1)}
             >
               <ArrowRight size={20} weight="regular" aria-hidden />
-            </button>
-          </div>
-
-          <div className={styles.navMode}>
-            <button
-              type="button"
-              className={`${styles.modeBtn}${viewMode === 'edit' ? ` ${styles.modeBtnActive}` : ''}`}
-              aria-label="Edit mode"
-              aria-pressed={viewMode === 'edit'}
-              onClick={() => setViewMode('edit')}
-            >
-              <PencilSimple size={20} weight="regular" aria-hidden />
-            </button>
-            <button
-              type="button"
-              className={`${styles.modeBtn}${viewMode === 'view' ? ` ${styles.modeBtnActive}` : ''}`}
-              aria-label="View mode"
-              aria-pressed={viewMode === 'view'}
-              onClick={() => setViewMode('view')}
-            >
-              <Eye size={20} weight="regular" aria-hidden />
             </button>
           </div>
         </div>
