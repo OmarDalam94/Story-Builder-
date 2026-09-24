@@ -2,7 +2,7 @@
  * Landing Story content type — Figma slide-landing-screen-map (3359:3802).
  * Full-page main content (not agent subcontext). Map from llumen-map-legend layers.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -13,13 +13,15 @@ import {
   GenderIntersex,
   Info,
   MapPin,
+  Pause,
   PencilSimple,
+  Play,
   Student,
   SquaresFour,
   X,
 } from '@phosphor-icons/react'
 import { llumenAssets } from '../assets'
-import { StoryEditPanel } from './StoryEditPanel'
+import { StoryEditPanel, type StoryPresentationSettings } from './StoryEditPanel'
 import {
   getLandingStory,
   type LandingStory,
@@ -81,10 +83,23 @@ function makeFilterMap(slides: StorySlide[], filters: StoryFilter[]) {
   ) as Record<string, StoryFilter[]>
 }
 
+function makePresentationSettings(): StoryPresentationSettings {
+  return {
+    darkLogoName: '',
+    lightLogoName: '',
+    textDirection: 'ltr',
+    chapterSplash: false,
+    autoplay: false,
+    multiSlide: true,
+  }
+}
+
 export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryViewProps) {
   const story = useMemo(() => getLandingStory(storyId), [storyId])
   const [storyTitle, setStoryTitle] = useState(story.storyTitle)
   const [storyDescription, setStoryDescription] = useState(story.description)
+  const [presentationSettings, setPresentationSettings] = useState(makePresentationSettings)
+  const [autoplaying, setAutoplaying] = useState(false)
   const [slideIndex, setSlideIndex] = useState(0)
   const [slides, setSlides] = useState<StorySlide[]>(() => story.slides.map(copySlide))
   const [filtersBySlide, setFiltersBySlide] = useState<Record<string, StoryFilter[]>>(() =>
@@ -113,12 +128,21 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const canNext = activeSlideIndex < slides.length - 1
   const aqiPct = Math.min(100, Math.max(0, (slide.aqi / 500) * 100))
 
+  useEffect(() => {
+    if (!autoplaying || !presentationSettings.autoplay || !presentationSettings.multiSlide) return
+    const timer = window.setInterval(
+      () => setSlideIndex((index) => (index + 1) % slides.length),
+      4000,
+    )
+    return () => window.clearInterval(timer)
+  }, [autoplaying, presentationSettings.autoplay, presentationSettings.multiSlide, slides.length])
+
   return (
     <div className={styles.root} aria-label={`${story.storyTitle} story`}>
       <StoryMap className={styles.map} layers={layers} />
 
       <div className={styles.overlay}>
-        <header className={styles.header}>
+        <header className={styles.header} dir={presentationSettings.textDirection}>
           <div className={styles.titleRow}>
             <button type="button" className={styles.backBtn} onClick={onBack} aria-label="Back to home">
               <ArrowLeft size={20} weight="regular" aria-hidden />
@@ -173,6 +197,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
 
         <div
           className={`${styles.body}${slide.focusLayout ? ` ${styles.bodyFocus}` : ''}`}
+          dir={presentationSettings.textDirection}
         >
           <aside
             className={[
@@ -241,11 +266,16 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           <StoryEditPanel
             storyTitle={storyTitle}
             storyDescription={storyDescription}
+            presentationSettings={presentationSettings}
             slides={slides}
             activeSlideIndex={activeSlideIndex}
             filters={filters}
             onStoryTitleChange={setStoryTitle}
             onStoryDescriptionChange={setStoryDescription}
+            onPresentationSettingsChange={(settings) => {
+              setPresentationSettings(settings)
+              if (!settings.autoplay || !settings.multiSlide) setAutoplaying(false)
+            }}
             onSelectSlide={setSlideIndex}
             onSlideChange={(nextSlide) =>
               setSlides((items) =>
@@ -283,27 +313,27 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               }))
               setSlideIndex(slides.length)
             }}
-            onDeleteSlide={() => {
+            onDeleteSlide={(slideId) => {
               if (slides.length === 1) return
-              setSlides((items) => items.filter((item) => item.id !== slide.id))
+              const deletedIndex = slides.findIndex((item) => item.id === slideId)
+              if (deletedIndex === -1) return
+              setSlides((items) => items.filter((item) => item.id !== slideId))
               setFiltersBySlide((current) => {
                 const next = { ...current }
-                delete next[slide.id]
+                delete next[slideId]
                 return next
               })
-              setSlideIndex(Math.max(0, activeSlideIndex - 1))
-            }}
-            onReset={() => {
-              setStoryTitle(story.storyTitle)
-              setStoryDescription(story.description)
-              setSlides(story.slides.map(copySlide))
-              setFiltersBySlide(makeFilterMap(story.slides, story.filters))
-              setSlideIndex(0)
-              setLayers({
-                utilization: true,
-                vehiclesActive: true,
-                vehiclesIdling: true,
+              setSlideIndex((currentIndex) => {
+                if (currentIndex > deletedIndex) return currentIndex - 1
+                if (currentIndex === deletedIndex) {
+                  return Math.min(currentIndex, slides.length - 2)
+                }
+                return currentIndex
               })
+            }}
+            onDeleteSlides={() => {
+              setEditOpen(false)
+              onBack()
             }}
             onClose={() => setEditOpen(false)}
           />
@@ -393,29 +423,46 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             </button>
           ) : null}
 
-          <div className={styles.navCluster}>
-            <button
-              type="button"
-              className={styles.navArrow}
-              aria-label="Previous slide"
-              disabled={!canPrev}
-              onClick={() => canPrev && setSlideIndex((i) => i - 1)}
-            >
-              <ArrowLeft size={20} weight="regular" aria-hidden />
-            </button>
-            <span className={styles.navCount}>
-              {activeSlideIndex + 1}/{slides.length}
-            </span>
-            <button
-              type="button"
-              className={styles.navArrow}
-              aria-label="Next slide"
-              disabled={!canNext}
-              onClick={() => canNext && setSlideIndex((i) => i + 1)}
-            >
-              <ArrowRight size={20} weight="regular" aria-hidden />
-            </button>
-          </div>
+          {presentationSettings.multiSlide ? (
+            <div className={styles.navCluster}>
+              {presentationSettings.autoplay ? (
+                <button
+                  type="button"
+                  className={styles.navArrow}
+                  aria-label={autoplaying ? 'Pause autoplay' : 'Start autoplay'}
+                  aria-pressed={autoplaying}
+                  onClick={() => setAutoplaying((playing) => !playing)}
+                >
+                  {autoplaying ? (
+                    <Pause size={18} weight="fill" aria-hidden />
+                  ) : (
+                    <Play size={18} weight="fill" aria-hidden />
+                  )}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={styles.navArrow}
+                aria-label="Previous slide"
+                disabled={!canPrev}
+                onClick={() => canPrev && setSlideIndex((i) => i - 1)}
+              >
+                <ArrowLeft size={20} weight="regular" aria-hidden />
+              </button>
+              <span className={styles.navCount}>
+                {activeSlideIndex + 1}/{slides.length}
+              </span>
+              <button
+                type="button"
+                className={styles.navArrow}
+                aria-label="Next slide"
+                disabled={!canNext}
+                onClick={() => canNext && setSlideIndex((i) => i + 1)}
+              >
+                <ArrowRight size={20} weight="regular" aria-hidden />
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
