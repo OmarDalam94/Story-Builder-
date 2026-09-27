@@ -337,18 +337,21 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               }))
               setSlideIndex(slides.length)
             }}
-            onDuplicateSlide={() => {
+            onDuplicateSlide={(slideId) => {
+              const source = slides.find((item) => item.id === slideId) ?? slide
+              if (!source) return
               const id = `${story.id}-slide-${Date.now()}`
               const nextSlide = {
-                ...copySlide(slide),
+                ...copySlide(source),
                 id,
-                chapterId: slide.chapterId,
-                title: `${slide.title} copy`,
+                chapterId: source.chapterId,
+                title: `${source.title} copy`,
               }
+              const sourceFilters = filtersBySlide[source.id] ?? filters
               setSlides((items) => [...items, nextSlide])
               setFiltersBySlide((current) => ({
                 ...current,
-                [id]: filters.map((filter) => ({ ...filter })),
+                [id]: sourceFilters.map((filter) => ({ ...filter })),
               }))
               setSlideIndex(slides.length)
             }}

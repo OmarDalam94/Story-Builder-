@@ -223,6 +223,11 @@
   padding: 0;
 }
 
+.closeBtn,
+.backBtn {
+  border-radius: var(--radius-full);
+}
+
 .backBtn:hover,
 .closeBtn:hover,
 .removeBtn:hover {
@@ -654,14 +659,6 @@
   transform: translateY(-1px);
 }
 
-.slideItemActive,
-.slideItemActive:hover,
-.slideItemActive:focus-within {
-  border-color: transparent;
-  background: #ffffff24;
-  color: var(--lc-text-primary);
-}
-
 .slideItemSelect {
   display: flex;
   align-items: stretch;
@@ -724,7 +721,7 @@
   align-items: flex-start;
   box-sizing: border-box;
   width: 100%;
-  padding: var(--space-lg) 68px var(--space-lg) var(--space-xl);
+  padding: var(--space-lg) 44px var(--space-lg) var(--space-xl);
 }
 
 .slideItemActions {
@@ -734,17 +731,29 @@
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
-  opacity: 0;
-  pointer-events: none;
   transform: translateY(-50%);
-  transition: opacity 0.15s ease;
 }
 
-.slideItem:hover .slideItemActions,
-.slideItem:focus-within .slideItemActions {
-  opacity: 1;
-  pointer-events: auto;
+.slideMenuBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--lc-text-secondary);
+  cursor: pointer;
+}
+
+.slideMenuBtn:hover,
+.slideMenuBtnOpen {
+  border-color: var(--lc-border-default);
+  background: var(--lc-bg-default);
+  color: var(--lc-text-primary);
 }
 
 .slideActionBtn {
@@ -778,18 +787,6 @@
 .slideActionBtn:disabled {
   opacity: 0.35;
   cursor: default;
-}
-
-.filterIndex {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-md);
-  background: var(--lc-bg-default);
-  color: var(--lc-text-secondary);
-  font: var(--lc-font-micro);
 }
 
 .slideTitleLine {
@@ -841,6 +838,74 @@
   content: '·';
 }
 
+.mapCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: 64px;
+  padding: var(--space-sm) var(--space-md) var(--space-sm) var(--space-sm);
+  border: 1px solid var(--lc-border-default);
+  border-radius: var(--lc-ui-radius);
+  background: var(--lc-bg-subtle);
+}
+
+.mapThumb {
+  position: relative;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 48px;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: #0c0e10;
+}
+
+.mapThumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mapCopy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mapName {
+  color: var(--lc-text-primary);
+  font: var(--lc-font-body);
+  font-weight: var(--lc-weight-medium);
+}
+
+.mapStyleName {
+  color: var(--lc-text-tertiary);
+  font: var(--lc-font-small);
+}
+
+.mapChange {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  margin: 0;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--lc-border-default);
+  border-radius: var(--radius-full);
+  background: var(--lc-bg-default);
+  color: var(--lc-text-primary);
+  font: var(--lc-font-body);
+  font-weight: var(--lc-weight-medium);
+  cursor: pointer;
+}
+
+.mapChange:hover {
+  border-color: var(--lc-border-hover);
+  background: var(--lc-bg-default-hover);
+}
+
 .filterList {
   display: flex;
   flex-direction: column;
@@ -848,32 +913,68 @@
 }
 
 .filterRow {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 30px;
-  gap: var(--space-md);
-  align-items: center;
-}
-
-.layoutSettings {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-xl);
-}
-
-.layoutPrimaryRow {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
+  gap: var(--space-sm);
   box-sizing: border-box;
   width: 100%;
-  padding: var(--space-md);
-  border: 1px solid var(--lc-border-default);
-  border-radius: var(--radius-xl);
-  background: var(--lc-bg-subtle);
-  -webkit-backdrop-filter: blur(var(--lc-backdrop-blur-ui));
-  backdrop-filter: blur(var(--lc-backdrop-blur-ui));
+  height: 36px;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--lc-border-control);
+  border-radius: var(--lc-ui-radius);
+  background: var(--lc-bg-control);
+}
+
+.filterNumber {
+  flex-shrink: 0;
+  color: var(--lc-text-secondary);
+  font: var(--lc-font-body);
+}
+
+.filterLabel,
+.filterInput {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--lc-text-primary);
+  font: var(--lc-font-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filterInput {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+}
+
+.filterActions {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.filterRow:hover .filterActions,
+.filterRow:focus-within .filterActions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.filterRow:hover .filterLabel,
+.filterRow:hover .filterInput,
+.filterRow:focus-within .filterLabel,
+.filterRow:focus-within .filterInput {
+  padding-right: 60px;
 }
 
 .segmentedControl {
@@ -914,21 +1015,6 @@
   color: var(--lc-text-on-brand);
 }
 
-.layoutDivider {
-  width: 1px;
-  height: 28px;
-  background: var(--lc-border-default);
-}
-
-.focusControl {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  color: var(--lc-text-secondary);
-  font: var(--lc-font-small);
-  white-space: nowrap;
-}
-
 .switch {
   position: relative;
   width: 36px;
@@ -962,18 +1048,6 @@
 
 .switchOn .switchThumb {
   transform: translate(14px, -50%);
-}
-
-.sidebarWidthRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-}
-
-.settingLabel {
-  color: var(--lc-text-secondary);
-  font: var(--lc-font-body);
-  font-weight: var(--lc-weight-medium);
 }
 
 @media (max-width: 760px) {

@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   CaretDown,
   Copy,
+  DotsThreeVertical,
   PencilSimple,
   Plus,
   ShareNetwork,
@@ -33,7 +34,7 @@ export type StoryEditPanelProps = {
   onRenameChapter: (chapterId: string, title: string) => void
   onDeleteChapter: (chapterId: string) => void
   onAddSlide: (chapterId: string) => void
-  onDuplicateSlide: () => void
+  onDuplicateSlide: (slideId?: string) => void
   onDeleteSlide: (slideId: string) => void
   onDeleteSlides: () => void
   onClose: () => void
@@ -226,13 +227,12 @@ export function StoryEditPanel({
             <SlidesOverview
               chapters={chapters}
               slides={slides}
-              activeSlideIndex={activeSlideIndex}
-              onSelectSlide={onSelectSlide}
               onEditSlide={(index) => {
                 onSelectSlide(index)
                 setMenuOpen(false)
                 setIsEditingSlide(true)
               }}
+              onDuplicateSlide={onDuplicateSlide}
               onDeleteSlide={(slideId) => onDeleteSlide(slideId)}
               onAddChapter={onAddChapter}
               onRenameChapter={onRenameChapter}
@@ -553,9 +553,8 @@ function SettingToggle({
 function SlidesOverview({
   chapters,
   slides,
-  activeSlideIndex,
-  onSelectSlide,
   onEditSlide,
+  onDuplicateSlide,
   onDeleteSlide,
   onAddChapter,
   onRenameChapter,
@@ -565,9 +564,8 @@ function SlidesOverview({
 }: {
   chapters: StoryChapter[]
   slides: StorySlide[]
-  activeSlideIndex: number
-  onSelectSlide: (index: number) => void
   onEditSlide: (index: number) => void
+  onDuplicateSlide: (slideId?: string) => void
   onDeleteSlide: (slideId: string) => void
   onAddChapter: () => void
   onRenameChapter: (chapterId: string, title: string) => void
@@ -577,6 +575,48 @@ function SlidesOverview({
 }) {
   const [editingChapterId, setEditingChapterId] = useState<string | null>(null)
   const [chapterDraft, setChapterDraft] = useState('')
+  const [menuSlideId, setMenuSlideId] = useState<string | null>(null)
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  const placeSlideMenu = useCallback((button: HTMLButtonElement) => {
+    const rect = button.getBoundingClientRect()
+    const width = 200
+    const height = 92
+    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+    const below = rect.bottom + 8
+    const top = below + height > window.innerHeight ? Math.max(8, rect.top - 8 - height) : below
+    setMenuPosition({ top, left })
+  }, [])
+
+  useEffect(() => {
+    if (!menuSlideId) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      setMenuSlideId(null)
+    }
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (menuButtonRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      setMenuSlideId(null)
+    }
+    const onLayout = () => {
+      if (menuButtonRef.current) placeSlideMenu(menuButtonRef.current)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('resize', onLayout)
+    window.addEventListener('scroll', onLayout, true)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('resize', onLayout)
+      window.removeEventListener('scroll', onLayout, true)
+    }
+  }, [menuSlideId, placeSlideMenu])
   const cancelChapterRename = useRef(false)
 
   const commitChapterName = () => {
@@ -669,17 +709,12 @@ function SlidesOverview({
                     SLIDE_THUMB_VARIANTS[index % SLIDE_THUMB_VARIANTS.length],
                   )
                   return (
-                    <div
-                      key={item.id}
-                      className={`${styles.slideItem}${
-                        index === activeSlideIndex ? ` ${styles.slideItemActive}` : ''
-                      }`}
-                    >
+                    <div key={item.id} className={styles.slideItem}>
                       <button
                         type="button"
                         className={styles.slideItemSelect}
-                        onClick={() => onSelectSlide(index)}
-                        aria-current={index === activeSlideIndex ? 'true' : undefined}
+                        onClick={() => onEditSlide(index)}
+                        aria-label={`Edit slide ${chapterIndex + 1}: ${item.title}`}
                       >
                         <span className={styles.slideThumbnail} aria-hidden>
                           <span className={styles.slideThumbnailLayers}>
@@ -709,22 +744,24 @@ function SlidesOverview({
                         <div className={styles.slideItemActions}>
                           <button
                             type="button"
-                            className={styles.slideActionBtn}
-                            onClick={() => onEditSlide(index)}
-                            aria-label={`Edit slide ${chapterIndex + 1}: ${item.title}`}
-                            title="Edit slide"
+                            className={`${styles.slideMenuBtn}${
+                              menuSlideId === item.id ? ` ${styles.slideMenuBtnOpen}` : ''
+                            }`}
+                            aria-label={`Actions for ${item.title}`}
+                            aria-haspopup="menu"
+                            aria-expanded={menuSlideId === item.id}
+                            onClick={(event) => {
+                              const button = event.currentTarget
+                              if (menuSlideId === item.id) {
+                                setMenuSlideId(null)
+                                return
+                              }
+                              menuButtonRef.current = button
+                              placeSlideMenu(button)
+                              setMenuSlideId(item.id)
+                            }}
                           >
-                            <PencilSimple size={15} aria-hidden />
-                          </button>
-                          <button
-                            type="button"
-                            className={`${styles.slideActionBtn} ${styles.slideActionDanger}`}
-                            onClick={() => onDeleteSlide(item.id)}
-                            aria-label={`Delete slide ${chapterIndex + 1}: ${item.title}`}
-                            title="Delete slide"
-                            disabled={slides.length === 1}
-                          >
-                            <Trash size={15} aria-hidden />
+                            <DotsThreeVertical size={18} weight="bold" aria-hidden />
                           </button>
                         </div>
                       ) : null}
@@ -746,6 +783,43 @@ function SlidesOverview({
           )
         })}
       </div>
+      {menuSlideId
+        ? createPortal(
+            <div
+              ref={menuRef}
+              className={styles.titleMenu}
+              role="menu"
+              aria-label="Slide actions"
+              style={{ top: menuPosition.top, left: menuPosition.left }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onDuplicateSlide(menuSlideId)
+                  setMenuSlideId(null)
+                }}
+              >
+                <Copy size={16} aria-hidden />
+                Duplicate
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.titleMenuDanger}
+                disabled={slides.length === 1}
+                onClick={() => {
+                  onDeleteSlide(menuSlideId)
+                  setMenuSlideId(null)
+                }}
+              >
+                <Trash size={16} aria-hidden />
+                Remove
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
     </section>
   )
 }
@@ -763,6 +837,9 @@ function SlideEditor({
   onSlideChange: <K extends keyof StorySlide>(key: K, value: StorySlide[K]) => void
   onFiltersChange: (filters: StoryFilter[]) => void
 }) {
+  const [editingFilterId, setEditingFilterId] = useState<string | null>(null)
+  const mapThumb = storyThumbLayers('map')
+
   return (
     <>
       <section className={styles.section}>
@@ -798,47 +875,34 @@ function SlideEditor({
             <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Layout</h3>
           </div>
         </div>
-        <div className={styles.layoutSettings}>
-          <div className={styles.layoutPrimaryRow}>
-            <div className={styles.segmentedControl} aria-label="Slide layout">
-              <button
-                type="button"
-                className={`${styles.segmentedBtn}${
-                  slide.layout === 'sidebar' ? ` ${styles.segmentedBtnActive}` : ''
-                }`}
-                aria-pressed={slide.layout === 'sidebar'}
-                onClick={() => onSlideChange('layout', 'sidebar')}
-              >
-                Side Bar
-              </button>
-              <button
-                type="button"
-                className={`${styles.segmentedBtn}${
-                  slide.layout === 'full-width' ? ` ${styles.segmentedBtnActive}` : ''
-                }`}
-                aria-pressed={slide.layout === 'full-width'}
-                onClick={() => onSlideChange('layout', 'full-width')}
-              >
-                Full Width
-              </button>
-            </div>
-            <span className={styles.layoutDivider} aria-hidden />
-            <div className={styles.focusControl}>
-              <span>Focus Layout</span>
-              <button
-                type="button"
-                role="switch"
-                className={`${styles.switch}${slide.focusLayout ? ` ${styles.switchOn}` : ''}`}
-                aria-checked={slide.focusLayout}
-                aria-label="Focus layout"
-                onClick={() => onSlideChange('focusLayout', !slide.focusLayout)}
-              >
-                <span className={styles.switchThumb} />
-              </button>
-            </div>
+        <div className={styles.settingGroup}>
+          <span className={styles.label}>Slide Layout</span>
+          <div className={styles.segmentedControl} aria-label="Slide layout">
+            <button
+              type="button"
+              className={`${styles.segmentedBtn}${
+                slide.layout === 'sidebar' ? ` ${styles.segmentedBtnActive}` : ''
+              }`}
+              aria-pressed={slide.layout === 'sidebar'}
+              onClick={() => onSlideChange('layout', 'sidebar')}
+            >
+              Side Bar
+            </button>
+            <button
+              type="button"
+              className={`${styles.segmentedBtn}${
+                slide.layout === 'full-width' ? ` ${styles.segmentedBtnActive}` : ''
+              }`}
+              aria-pressed={slide.layout === 'full-width'}
+              onClick={() => onSlideChange('layout', 'full-width')}
+            >
+              Full Width
+            </button>
           </div>
-          <div className={styles.sidebarWidthRow}>
-            <span className={styles.settingLabel}>Sidebar Width</span>
+        </div>
+        {slide.layout === 'sidebar' ? (
+          <div className={styles.settingGroup}>
+            <span className={styles.label}>Sidebar Width</span>
             <div className={styles.segmentedControl} aria-label="Sidebar width">
               <button
                 type="button"
@@ -862,7 +926,12 @@ function SlideEditor({
               </button>
             </div>
           </div>
-        </div>
+        ) : null}
+        <SettingToggle
+          label="Focus Layout"
+          checked={slide.focusLayout}
+          onChange={(checked) => onSlideChange('focusLayout', checked)}
+        />
       </section>
 
       <section className={styles.section}>
@@ -891,31 +960,81 @@ function SlideEditor({
         <div className={styles.filterList}>
           {filters.map((filter, index) => (
             <div className={styles.filterRow} key={filter.id}>
-              <span className={styles.filterIndex}>{index + 1}</span>
-              <input
-                className={styles.input}
-                aria-label={`Filter ${index + 1}`}
-                value={filter.label}
-                onChange={(event) =>
-                  onFiltersChange(
-                    filters.map((item) =>
-                      item.id === filter.id ? { ...item, label: event.target.value } : item,
-                    ),
-                  )
-                }
-              />
-              <button
-                type="button"
-                className={styles.removeBtn}
-                aria-label={`Remove ${filter.label} filter`}
-                onClick={() =>
-                  onFiltersChange(filters.filter((item) => item.id !== filter.id))
-                }
-              >
-                <X size={15} aria-hidden />
-              </button>
+              <span className={styles.filterNumber}>{index + 1}</span>
+              {editingFilterId === filter.id ? (
+                <input
+                  className={styles.filterInput}
+                  aria-label={`Filter ${index + 1}`}
+                  value={filter.label}
+                  autoFocus
+                  onChange={(event) =>
+                    onFiltersChange(
+                      filters.map((item) =>
+                        item.id === filter.id ? { ...item, label: event.target.value } : item,
+                      ),
+                    )
+                  }
+                  onBlur={() => setEditingFilterId(null)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.stopPropagation()
+                      setEditingFilterId(null)
+                      return
+                    }
+                    if (event.key === 'Enter') {
+                      event.currentTarget.blur()
+                    }
+                  }}
+                />
+              ) : (
+                <span className={styles.filterLabel}>{filter.label}</span>
+              )}
+              <div className={styles.filterActions}>
+                <button
+                  type="button"
+                  className={`${styles.slideActionBtn} ${styles.chapterEditBtn}`}
+                  aria-label={`Edit filter ${index + 1}`}
+                  title="Edit filter"
+                  onClick={() => setEditingFilterId(filter.id)}
+                >
+                  <PencilSimple size={15} aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.slideActionBtn} ${styles.slideActionDanger}`}
+                  aria-label={`Remove ${filter.label} filter`}
+                  title="Remove filter"
+                  onClick={() => {
+                    if (editingFilterId === filter.id) setEditingFilterId(null)
+                    onFiltersChange(filters.filter((item) => item.id !== filter.id))
+                  }}
+                >
+                  <Trash size={15} aria-hidden />
+                </button>
+              </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.sectionHeading}>
+          <div>
+            <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Map</h3>
+          </div>
+        </div>
+        <div className={styles.mapCard}>
+          <span className={styles.mapThumb} aria-hidden>
+            <img src={mapThumb.image} alt="" />
+            {mapThumb.overlay ? <img src={mapThumb.overlay} alt="" /> : null}
+          </span>
+          <span className={styles.mapCopy}>
+            <span className={styles.mapName}>Map</span>
+            <span className={styles.mapStyleName}>Custom style</span>
+          </span>
+          <button type="button" className={styles.mapChange}>
+            Change
+          </button>
         </div>
       </section>
 
