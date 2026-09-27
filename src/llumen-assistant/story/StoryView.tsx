@@ -26,6 +26,7 @@ import {
   getLandingStory,
   type LandingStory,
   type StoryFilter,
+  type StoryChapter,
   type StorySlide,
 } from './storyDemoData'
 import { StoryMap, type StoryMapLayerVisibility } from './StoryMap'
@@ -97,10 +98,13 @@ function makePresentationSettings(): StoryPresentationSettings {
 export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryViewProps) {
   const story = useMemo(() => getLandingStory(storyId), [storyId])
   const [storyTitle, setStoryTitle] = useState(story.storyTitle)
-  const [storyDescription, setStoryDescription] = useState(story.description)
+  const storyDescription = story.description
   const [presentationSettings, setPresentationSettings] = useState(makePresentationSettings)
   const [autoplaying, setAutoplaying] = useState(false)
   const [slideIndex, setSlideIndex] = useState(0)
+  const [chapters, setChapters] = useState<StoryChapter[]>(() =>
+    story.chapters.map((chapter) => ({ ...chapter })),
+  )
   const [slides, setSlides] = useState<StorySlide[]>(() => story.slides.map(copySlide))
   const [filtersBySlide, setFiltersBySlide] = useState<Record<string, StoryFilter[]>>(() =>
     makeFilterMap(story.slides, story.filters),
@@ -122,6 +126,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     storyTitle,
     description: storyDescription,
     filters,
+    chapters,
     slides,
   }
   const canPrev = activeSlideIndex > 0
@@ -149,19 +154,22 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             </button>
             <div className={styles.titleGroup}>
               <h1 className={styles.storyTitle}>{storyTitle}</h1>
-              <button
-                type="button"
-                className={styles.infoBtn}
-                aria-label="Show Story description"
-                aria-expanded={infoOpen}
-                aria-describedby={infoOpen ? 'story-description' : undefined}
-                onClick={() => setInfoOpen((open) => !open)}
-              >
-                <Info size={18} weight="regular" aria-hidden />
-              </button>
+              <div className={styles.slideTitleRow}>
+                <h2 className={styles.slideTitle}>{slide.title}</h2>
+                <button
+                  type="button"
+                  className={styles.infoBtn}
+                  aria-label="Show slide description"
+                  aria-expanded={infoOpen}
+                  aria-describedby={infoOpen ? 'slide-description' : undefined}
+                  onClick={() => setInfoOpen((open) => !open)}
+                >
+                  <Info size={18} weight="regular" aria-hidden />
+                </button>
+              </div>
               {infoOpen ? (
-                <div id="story-description" className={styles.infoPopover} role="tooltip">
-                  {storyDescription || 'No description added.'}
+                <div id="slide-description" className={styles.infoPopover} role="tooltip">
+                  {slide.finding || 'No description added.'}
                 </div>
               ) : null}
             </div>
@@ -213,7 +221,6 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             aria-label="Story insight"
           >
             <div className={styles.insightCopy}>
-              <h2 className={styles.slideHeading}>{slide.title}</h2>
               <p className={styles.finding}>{slide.finding}</p>
               <p className={styles.bodyCopy}>{slide.body}</p>
             </div>
@@ -267,11 +274,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             storyTitle={storyTitle}
             storyDescription={storyDescription}
             presentationSettings={presentationSettings}
+            chapters={chapters}
             slides={slides}
             activeSlideIndex={activeSlideIndex}
             filters={filters}
             onStoryTitleChange={setStoryTitle}
-            onStoryDescriptionChange={setStoryDescription}
             onPresentationSettingsChange={(settings) => {
               setPresentationSettings(settings)
               if (!settings.autoplay || !settings.multiSlide) setAutoplaying(false)
@@ -285,12 +292,43 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             onFiltersChange={(nextFilters) =>
               setFiltersBySlide((current) => ({ ...current, [slide.id]: nextFilters }))
             }
-            onAddSlide={() => {
+            onAddChapter={() => {
+              const id = `${story.id}-chapter-${Date.now()}`
+              setChapters((items) => [...items, { id, title: `Chapter ${items.length + 1}` }])
+            }}
+            onRenameChapter={(chapterId, title) => {
+              setChapters((items) =>
+                items.map((item) => (item.id === chapterId ? { ...item, title } : item)),
+              )
+            }}
+            onDeleteChapter={(chapterId) => {
+              if (chapters.length === 1) return
+              const remaining = slides.filter((item) => item.chapterId !== chapterId)
+              if (remaining.length === 0) return
+              const removedIds = new Set(
+                slides.filter((item) => item.chapterId === chapterId).map((item) => item.id),
+              )
+              setChapters((items) => items.filter((item) => item.id !== chapterId))
+              setSlides(remaining)
+              setFiltersBySlide((current) => {
+                const next = { ...current }
+                removedIds.forEach((id) => delete next[id])
+                return next
+              })
+              if (removedIds.has(slide.id)) {
+                setSlideIndex(0)
+              }
+            }}
+            onAddSlide={(chapterId) => {
+              const source = slides[activeSlideIndex] ?? slides[0]
+              if (!source) return
               const id = `${story.id}-slide-${Date.now()}`
+              const chapterSlides = slides.filter((item) => item.chapterId === chapterId)
               const nextSlide = {
-                ...copySlide(slide),
+                ...copySlide(source),
                 id,
-                title: `Untitled slide ${slides.length + 1}`,
+                chapterId,
+                title: `Untitled slide ${chapterSlides.length + 1}`,
               }
               setSlides((items) => [...items, nextSlide])
               setFiltersBySlide((current) => ({
@@ -304,6 +342,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               const nextSlide = {
                 ...copySlide(slide),
                 id,
+                chapterId: slide.chapterId,
                 title: `${slide.title} copy`,
               }
               setSlides((items) => [...items, nextSlide])

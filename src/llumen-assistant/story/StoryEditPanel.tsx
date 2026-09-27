@@ -10,23 +10,29 @@ import {
   Trash,
   X,
 } from '@phosphor-icons/react'
-import type { StoryFilter, StorySlide } from './storyDemoData'
+import { storyThumbLayers } from '../landing/landingAssets'
+import type { StoryChapter, StoryFilter, StorySlide } from './storyDemoData'
 import styles from './StoryEditPanel.module.css'
+
+const SLIDE_THUMB_VARIANTS = ['map', 'chart', 'satellite'] as const
 
 export type StoryEditPanelProps = {
   storyTitle: string
   storyDescription: string
   presentationSettings: StoryPresentationSettings
+  chapters: StoryChapter[]
   slides: StorySlide[]
   activeSlideIndex: number
   filters: StoryFilter[]
   onStoryTitleChange: (value: string) => void
-  onStoryDescriptionChange: (value: string) => void
   onPresentationSettingsChange: (settings: StoryPresentationSettings) => void
   onSelectSlide: (index: number) => void
   onSlideChange: (slide: StorySlide) => void
   onFiltersChange: (filters: StoryFilter[]) => void
-  onAddSlide: () => void
+  onAddChapter: () => void
+  onRenameChapter: (chapterId: string, title: string) => void
+  onDeleteChapter: (chapterId: string) => void
+  onAddSlide: (chapterId: string) => void
   onDuplicateSlide: () => void
   onDeleteSlide: (slideId: string) => void
   onDeleteSlides: () => void
@@ -46,15 +52,18 @@ export function StoryEditPanel({
   storyTitle,
   storyDescription,
   presentationSettings,
+  chapters,
   slides,
   activeSlideIndex,
   filters,
   onStoryTitleChange,
-  onStoryDescriptionChange,
   onPresentationSettingsChange,
   onSelectSlide,
   onSlideChange,
   onFiltersChange,
+  onAddChapter,
+  onRenameChapter,
+  onDeleteChapter,
   onAddSlide,
   onDuplicateSlide,
   onDeleteSlide,
@@ -67,6 +76,10 @@ export function StoryEditPanel({
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const slide = slides[activeSlideIndex]
+  const slideChapter = chapters.find((chapter) => chapter.id === slide?.chapterId)
+  const chapterSlides = slides.filter((item) => item.chapterId === slide?.chapterId)
+  const slideNumber = chapterSlides.findIndex((item) => item.id === slide?.id) + 1
+  const slideHeading = `${slideChapter?.title ?? 'Chapter'} / Slide ${Math.max(slideNumber, 1)}`
 
   const syncMenuPosition = useCallback(() => {
     const button = menuButtonRef.current
@@ -145,26 +158,26 @@ export function StoryEditPanel({
             <button
               type="button"
               className={styles.backBtn}
-              onClick={() => setIsEditingSlide(false)}
+              onClick={() => {
+                setMenuOpen(false)
+                setIsEditingSlide(false)
+              }}
               aria-label="Back to Story builder"
             >
               <ArrowLeft size={18} weight="bold" aria-hidden />
             </button>
           )}
           <div className={styles.headerCopy}>
-            {isEditingSlide ? (
-              <p className={styles.kicker}>Slide {activeSlideIndex + 1}</p>
-            ) : null}
             <div className={styles.titleLine}>
               <h2 className={styles.title}>
-                {isEditingSlide ? slide.title : 'Configure slides'}
+                {isEditingSlide ? slideHeading : 'Edit Story'}
               </h2>
-              {!isEditingSlide ? (
+              {!isEditingSlide || presentationSettings.multiSlide ? (
                 <button
                   ref={menuButtonRef}
                   type="button"
                   className={`${styles.titleMenuBtn}${menuOpen ? ` ${styles.titleMenuBtnOpen}` : ''}`}
-                  aria-label="Configure slides menu"
+                  aria-label={isEditingSlide ? 'Slide actions' : 'Edit story menu'}
                   aria-expanded={menuOpen}
                   aria-haspopup="menu"
                   onClick={() => {
@@ -198,47 +211,45 @@ export function StoryEditPanel({
           <SlideEditor
             slide={slide}
             filters={filters}
-            slidesCount={slides.length}
             multiSlide={presentationSettings.multiSlide}
             onSlideChange={patchSlide}
             onFiltersChange={onFiltersChange}
-            onDuplicateSlide={onDuplicateSlide}
-            onDeleteSlide={() => {
-              onDeleteSlide(slide.id)
-              setIsEditingSlide(false)
-            }}
           />
         ) : (
           <>
             <MainContentTab
               storyTitle={storyTitle}
-              storyDescription={storyDescription}
               presentationSettings={presentationSettings}
               onStoryTitleChange={onStoryTitleChange}
-              onStoryDescriptionChange={onStoryDescriptionChange}
               onPresentationSettingsChange={onPresentationSettingsChange}
             />
             <SlidesOverview
+              chapters={chapters}
               slides={slides}
               activeSlideIndex={activeSlideIndex}
               onSelectSlide={onSelectSlide}
               onEditSlide={(index) => {
                 onSelectSlide(index)
+                setMenuOpen(false)
                 setIsEditingSlide(true)
               }}
               onDeleteSlide={(slideId) => onDeleteSlide(slideId)}
+              onAddChapter={onAddChapter}
+              onRenameChapter={onRenameChapter}
+              onDeleteChapter={onDeleteChapter}
               onAddSlide={onAddSlide}
               multiSlide={presentationSettings.multiSlide}
             />
           </>
         )}
       </div>
-      {menuOpen && !isEditingSlide
+      {menuOpen
         ? createPortal(
             <div
               ref={menuRef}
               className={styles.titleMenu}
               role="menu"
+              aria-label={isEditingSlide ? 'Slide actions' : 'Edit story menu'}
               style={
                 {
                   top: menuPosition.top,
@@ -246,22 +257,54 @@ export function StoryEditPanel({
                 } as CSSProperties
               }
             >
-              <button type="button" role="menuitem" onClick={() => void shareSlides()}>
-                <ShareNetwork size={16} aria-hidden />
-                Share slides
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className={styles.titleMenuDanger}
-                onClick={() => {
-                  setMenuOpen(false)
-                  if (window.confirm('Delete this slide deck?')) onDeleteSlides()
-                }}
-              >
-                <Trash size={16} aria-hidden />
-                Delete slides
-              </button>
+              {isEditingSlide ? (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onDuplicateSlide()
+                      setMenuOpen(false)
+                    }}
+                  >
+                    <Copy size={16} aria-hidden />
+                    Duplicate
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={styles.titleMenuDanger}
+                    disabled={slides.length === 1}
+                    onClick={() => {
+                      onDeleteSlide(slide.id)
+                      setMenuOpen(false)
+                      setIsEditingSlide(false)
+                    }}
+                  >
+                    <Trash size={16} aria-hidden />
+                    Delete
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" role="menuitem" onClick={() => void shareSlides()}>
+                    <ShareNetwork size={16} aria-hidden />
+                    Share slides
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={styles.titleMenuDanger}
+                    onClick={() => {
+                      setMenuOpen(false)
+                      if (window.confirm('Delete this slide deck?')) onDeleteSlides()
+                    }}
+                  >
+                    <Trash size={16} aria-hidden />
+                    Delete slides
+                  </button>
+                </>
+              )}
             </div>,
             document.body,
           )
@@ -270,73 +313,163 @@ export function StoryEditPanel({
   )
 }
 
+const LOGO_OPTIONS = [
+  { value: 'dark', label: 'Dark Mode Logo (Default)' },
+  { value: 'light', label: 'Light Mode Logo' },
+] as const
+
 function MainContentTab({
   storyTitle,
-  storyDescription,
   presentationSettings,
   onStoryTitleChange,
-  onStoryDescriptionChange,
   onPresentationSettingsChange,
 }: {
   storyTitle: string
-  storyDescription: string
   presentationSettings: StoryPresentationSettings
   onStoryTitleChange: (value: string) => void
-  onStoryDescriptionChange: (value: string) => void
   onPresentationSettingsChange: (settings: StoryPresentationSettings) => void
 }) {
+  const [logoMode, setLogoMode] = useState<'dark' | 'light'>('dark')
+  const [logoMenuOpen, setLogoMenuOpen] = useState(false)
+  const [logoMenuPosition, setLogoMenuPosition] = useState({ top: 0, left: 0, width: 0 })
+  const logoTriggerRef = useRef<HTMLButtonElement>(null)
+  const logoMenuRef = useRef<HTMLDivElement>(null)
   const patchSettings = <K extends keyof StoryPresentationSettings>(
     key: K,
     value: StoryPresentationSettings[K],
   ) => onPresentationSettingsChange({ ...presentationSettings, [key]: value })
+  const logoName =
+    logoMode === 'dark' ? presentationSettings.darkLogoName : presentationSettings.lightLogoName
+  const logoLabel = LOGO_OPTIONS.find((option) => option.value === logoMode)?.label ?? LOGO_OPTIONS[0].label
+
+  const syncLogoMenuPosition = useCallback(() => {
+    const trigger = logoTriggerRef.current
+    if (!trigger) return
+    const rect = trigger.getBoundingClientRect()
+    setLogoMenuPosition({
+      top: rect.bottom + 8,
+      left: Math.min(rect.left, Math.max(8, window.innerWidth - rect.width - 8)),
+      width: rect.width,
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!logoMenuOpen) return
+    syncLogoMenuPosition()
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (logoTriggerRef.current?.contains(target) || logoMenuRef.current?.contains(target)) return
+      setLogoMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopImmediatePropagation()
+      setLogoMenuOpen(false)
+      logoTriggerRef.current?.focus()
+    }
+    const onLayout = () => syncLogoMenuPosition()
+    document.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('resize', onLayout)
+    window.addEventListener('scroll', onLayout, true)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('resize', onLayout)
+      window.removeEventListener('scroll', onLayout, true)
+    }
+  }, [logoMenuOpen, syncLogoMenuPosition])
 
   return (
     <section className={styles.section}>
+      <div className={styles.sectionHeading}>
+        <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Story Configuration</h3>
+      </div>
       <label className={styles.field}>
-        <span className={styles.label}>Slides title</span>
+        <span className={styles.label}>Story title</span>
         <input
           className={styles.input}
           maxLength={100}
           value={storyTitle}
           onChange={(event) => onStoryTitleChange(event.target.value)}
         />
-        <span className={styles.characterCount}>{storyTitle.length}/100</span>
       </label>
-      <label className={styles.field}>
-        <span className={styles.label}>Slides description</span>
-        <textarea
-          className={styles.textarea}
-          rows={5}
-          maxLength={500}
-          value={storyDescription}
-          onChange={(event) => onStoryDescriptionChange(event.target.value)}
-        />
-        <span className={styles.characterCount}>{storyDescription.length}/500</span>
-      </label>
-      <label className={styles.logoField}>
-        <span className={styles.label}>Dark Mode Logo (Default)</span>
-        <input
-          className={styles.fileInput}
-          type="file"
-          accept="image/*"
-          onChange={(event) => patchSettings('darkLogoName', event.target.files?.[0]?.name ?? '')}
-        />
-        <span className={styles.fileSelect}>
-          {presentationSettings.darkLogoName || 'Select'}
-        </span>
-      </label>
-      <label className={styles.logoField}>
-        <span className={styles.label}>Light Mode Logo</span>
-        <input
-          className={styles.fileInput}
-          type="file"
-          accept="image/*"
-          onChange={(event) => patchSettings('lightLogoName', event.target.files?.[0]?.name ?? '')}
-        />
-        <span className={styles.fileSelect}>
-          {presentationSettings.lightLogoName || 'Select'}
-        </span>
-      </label>
+      <div className={styles.field}>
+        <span className={styles.label}>Logo</span>
+        <div className={styles.logoField}>
+        <div className={styles.logoSelectWrap}>
+          <button
+            ref={logoTriggerRef}
+            type="button"
+            className={`${styles.logoSelect}${logoMenuOpen ? ` ${styles.logoSelectOpen}` : ''}`}
+            aria-label="Logo"
+            aria-haspopup="listbox"
+            aria-expanded={logoMenuOpen}
+            aria-controls="logo-mode-menu"
+            onClick={() => {
+              if (logoMenuOpen) {
+                setLogoMenuOpen(false)
+                return
+              }
+              syncLogoMenuPosition()
+              setLogoMenuOpen(true)
+            }}
+          >
+            <span>{logoLabel}</span>
+            <CaretDown className={styles.logoSelectCaret} size={16} weight="bold" aria-hidden />
+          </button>
+          {logoMenuOpen
+            ? createPortal(
+                <div
+                  ref={logoMenuRef}
+                  id="logo-mode-menu"
+                  className={styles.logoMenu}
+                  role="listbox"
+                  aria-label="Logo"
+                  style={
+                    {
+                      top: logoMenuPosition.top,
+                      left: logoMenuPosition.left,
+                      width: logoMenuPosition.width,
+                    } as CSSProperties
+                  }
+                >
+                  {LOGO_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="option"
+                      aria-selected={option.value === logoMode}
+                      className={option.value === logoMode ? styles.logoMenuSelected : undefined}
+                      onClick={() => {
+                        setLogoMode(option.value)
+                        setLogoMenuOpen(false)
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>,
+                document.body,
+              )
+            : null}
+        </div>
+        <label className={styles.fileSelect}>
+          <input
+            className={styles.fileInput}
+            type="file"
+            accept="image/*"
+            onChange={(event) =>
+              patchSettings(
+                logoMode === 'dark' ? 'darkLogoName' : 'lightLogoName',
+                event.target.files?.[0]?.name ?? '',
+              )
+            }
+          />
+          {logoName || 'Select'}
+        </label>
+        </div>
+      </div>
       <div className={styles.settingGroup}>
         <span className={styles.label}>Text Direction</span>
         <div className={styles.segmentedControl} aria-label="Text direction">
@@ -418,77 +551,200 @@ function SettingToggle({
 }
 
 function SlidesOverview({
+  chapters,
   slides,
   activeSlideIndex,
   onSelectSlide,
   onEditSlide,
   onDeleteSlide,
+  onAddChapter,
+  onRenameChapter,
+  onDeleteChapter,
   onAddSlide,
   multiSlide,
 }: {
+  chapters: StoryChapter[]
   slides: StorySlide[]
   activeSlideIndex: number
   onSelectSlide: (index: number) => void
   onEditSlide: (index: number) => void
   onDeleteSlide: (slideId: string) => void
-  onAddSlide: () => void
+  onAddChapter: () => void
+  onRenameChapter: (chapterId: string, title: string) => void
+  onDeleteChapter: (chapterId: string) => void
+  onAddSlide: (chapterId: string) => void
   multiSlide: boolean
 }) {
+  const [editingChapterId, setEditingChapterId] = useState<string | null>(null)
+  const [chapterDraft, setChapterDraft] = useState('')
+  const cancelChapterRename = useRef(false)
+
+  const commitChapterName = () => {
+    if (cancelChapterRename.current) {
+      cancelChapterRename.current = false
+      return
+    }
+    if (!editingChapterId) return
+    const title = chapterDraft.trim()
+    if (title) onRenameChapter(editingChapterId, title)
+    setEditingChapterId(null)
+  }
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeading}>
         <div>
-          <h3 className={styles.sectionTitle}>Slides</h3>
+          <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Chapters</h3>
         </div>
         {multiSlide ? (
-          <button type="button" className={styles.addBtn} onClick={onAddSlide}>
+          <button type="button" className={styles.addBtn} onClick={onAddChapter}>
             <Plus size={15} weight="bold" aria-hidden />
-            Add slide
+            Add chapter
           </button>
         ) : null}
       </div>
-      <div className={styles.slideList}>
-        {slides.map((item, index) => (
-          <div
-            key={item.id}
-            className={`${styles.slideItem}${
-              index === activeSlideIndex ? ` ${styles.slideItemActive}` : ''
-            }`}
-          >
-            <button
-              type="button"
-              className={styles.slideItemSelect}
-              onClick={() => onSelectSlide(index)}
-              aria-current={index === activeSlideIndex ? 'true' : undefined}
-            >
-              <span className={styles.slideNumber}>{index + 1}</span>
-              <span className={styles.slideItemTitle}>{item.title}</span>
-            </button>
-            {multiSlide ? (
-              <div className={styles.slideItemActions}>
-                <button
-                  type="button"
-                  className={styles.slideActionBtn}
-                  onClick={() => onEditSlide(index)}
-                  aria-label={`Edit slide ${index + 1}: ${item.title}`}
-                  title="Edit slide"
-                >
-                  <PencilSimple size={15} aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.slideActionBtn} ${styles.slideActionDanger}`}
-                  onClick={() => onDeleteSlide(item.id)}
-                  aria-label={`Delete slide ${index + 1}: ${item.title}`}
-                  title="Delete slide"
-                  disabled={slides.length === 1}
-                >
-                  <Trash size={15} aria-hidden />
-                </button>
+      <div className={styles.chapterList}>
+        {chapters.map((chapter) => {
+          const chapterSlides = slides
+            .map((item, index) => ({ item, index }))
+            .filter(({ item }) => item.chapterId === chapter.id)
+          return (
+            <div key={chapter.id} className={styles.chapterGroup}>
+              <div className={styles.chapterHeading}>
+                <div className={styles.chapterTitleGroup}>
+                  {editingChapterId === chapter.id ? (
+                    <input
+                      className={styles.chapterTitleInput}
+                      value={chapterDraft}
+                      aria-label={`Chapter name for ${chapter.title}`}
+                      autoFocus
+                      maxLength={80}
+                      onChange={(event) => setChapterDraft(event.target.value)}
+                      onBlur={commitChapterName}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          event.stopPropagation()
+                          cancelChapterRename.current = true
+                          setEditingChapterId(null)
+                          return
+                        }
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          commitChapterName()
+                        }
+                      }}
+                    />
+                  ) : (
+                    <>
+                      <h4 className={styles.chapterTitle}>{chapter.title}</h4>
+                      <button
+                        type="button"
+                        className={`${styles.slideActionBtn} ${styles.chapterEditBtn}`}
+                        onClick={() => {
+                          setEditingChapterId(chapter.id)
+                          setChapterDraft(chapter.title)
+                        }}
+                        aria-label={`Edit ${chapter.title}`}
+                        title="Edit chapter name"
+                      >
+                        <PencilSimple size={15} aria-hidden />
+                      </button>
+                    </>
+                  )}
+                </div>
+                {multiSlide && chapters.length > 1 ? (
+                  <button
+                    type="button"
+                    className={`${styles.slideActionBtn} ${styles.slideActionDanger}`}
+                    onClick={() => onDeleteChapter(chapter.id)}
+                    aria-label={`Delete ${chapter.title}`}
+                    title="Delete chapter"
+                  >
+                    <Trash size={15} aria-hidden />
+                  </button>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-        ))}
+              <div className={styles.slideList}>
+                {chapterSlides.map(({ item, index }, chapterIndex) => {
+                  const thumbnail = storyThumbLayers(
+                    SLIDE_THUMB_VARIANTS[index % SLIDE_THUMB_VARIANTS.length],
+                  )
+                  return (
+                    <div
+                      key={item.id}
+                      className={`${styles.slideItem}${
+                        index === activeSlideIndex ? ` ${styles.slideItemActive}` : ''
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className={styles.slideItemSelect}
+                        onClick={() => onSelectSlide(index)}
+                        aria-current={index === activeSlideIndex ? 'true' : undefined}
+                      >
+                        <span className={styles.slideThumbnail} aria-hidden>
+                          <span className={styles.slideThumbnailLayers}>
+                            <img src={thumbnail.image} alt="" />
+                            {thumbnail.overlay ? <img src={thumbnail.overlay} alt="" /> : null}
+                          </span>
+                        </span>
+                        <span className={styles.slideItemMeta}>
+                          <span className={styles.slideItemCopy}>
+                            <span className={styles.slideTitleLine}>
+                              <span className={styles.slideNumber}>{chapterIndex + 1}.</span>
+                              <span className={styles.slideItemTitle}>{item.title}</span>
+                            </span>
+                            <span className={styles.slideItemDetails}>
+                              <span>{item.layout === 'sidebar' ? 'Sidebar' : 'Full width'}</span>
+                              {item.layout === 'sidebar' ? (
+                                <span>
+                                  {item.sidebarWidth === 'small' ? 'Small sidebar' : 'Large sidebar'}
+                                </span>
+                              ) : null}
+                              <span>{item.focusLayout ? 'Focus on' : 'Focus off'}</span>
+                            </span>
+                          </span>
+                        </span>
+                      </button>
+                      {multiSlide ? (
+                        <div className={styles.slideItemActions}>
+                          <button
+                            type="button"
+                            className={styles.slideActionBtn}
+                            onClick={() => onEditSlide(index)}
+                            aria-label={`Edit slide ${chapterIndex + 1}: ${item.title}`}
+                            title="Edit slide"
+                          >
+                            <PencilSimple size={15} aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            className={`${styles.slideActionBtn} ${styles.slideActionDanger}`}
+                            onClick={() => onDeleteSlide(item.id)}
+                            aria-label={`Delete slide ${chapterIndex + 1}: ${item.title}`}
+                            title="Delete slide"
+                            disabled={slides.length === 1}
+                          >
+                            <Trash size={15} aria-hidden />
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })}
+                {multiSlide ? (
+                  <button
+                    type="button"
+                    className={styles.addSlideRow}
+                    onClick={() => onAddSlide(chapter.id)}
+                  >
+                    <Plus size={16} weight="bold" aria-hidden />
+                    Add slide
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )
+        })}
       </div>
     </section>
   )
@@ -497,53 +753,22 @@ function SlidesOverview({
 function SlideEditor({
   slide,
   filters,
-  slidesCount,
   multiSlide,
   onSlideChange,
   onFiltersChange,
-  onDuplicateSlide,
-  onDeleteSlide,
 }: {
   slide: StorySlide
   filters: StoryFilter[]
-  slidesCount: number
   multiSlide: boolean
   onSlideChange: <K extends keyof StorySlide>(key: K, value: StorySlide[K]) => void
   onFiltersChange: (filters: StoryFilter[]) => void
-  onDuplicateSlide: () => void
-  onDeleteSlide: () => void
 }) {
   return (
     <>
-      {multiSlide ? (
-        <section className={styles.section}>
-          <div className={styles.sectionHeading}>
-            <div>
-              <h3 className={styles.sectionTitle}>Actions</h3>
-            </div>
-            <div className={styles.slideActions}>
-              <button type="button" className={styles.secondaryBtn} onClick={onDuplicateSlide}>
-                <Copy size={15} aria-hidden />
-                Duplicate
-              </button>
-              <button
-                type="button"
-                className={styles.dangerBtn}
-                onClick={onDeleteSlide}
-                disabled={slidesCount === 1}
-              >
-                <Trash size={15} aria-hidden />
-                Delete
-              </button>
-            </div>
-          </div>
-        </section>
-      ) : null}
-
       <section className={styles.section}>
         <div className={styles.sectionHeading}>
           <div>
-            <h3 className={styles.sectionTitle}>Content</h3>
+            <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Content</h3>
           </div>
         </div>
         {multiSlide ? (
@@ -557,7 +782,7 @@ function SlideEditor({
           </label>
         ) : null}
         <label className={styles.field}>
-          <span className={styles.label}>Primary insight</span>
+          <span className={styles.label}>Slide description</span>
           <textarea
             className={styles.textarea}
             rows={4}
@@ -565,21 +790,12 @@ function SlideEditor({
             onChange={(event) => onSlideChange('finding', event.target.value)}
           />
         </label>
-        <label className={styles.field}>
-          <span className={styles.label}>Supporting copy</span>
-          <textarea
-            className={styles.textarea}
-            rows={4}
-            value={slide.body}
-            onChange={(event) => onSlideChange('body', event.target.value)}
-          />
-        </label>
       </section>
 
       <section className={styles.section}>
         <div className={styles.sectionHeading}>
           <div>
-            <h3 className={styles.sectionTitle}>Layout</h3>
+            <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Layout</h3>
           </div>
         </div>
         <div className={styles.layoutSettings}>
@@ -652,7 +868,7 @@ function SlideEditor({
       <section className={styles.section}>
         <div className={styles.sectionHeading}>
           <div>
-            <h3 className={styles.sectionTitle}>Filters</h3>
+            <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Filters</h3>
           </div>
           <button
             type="button"

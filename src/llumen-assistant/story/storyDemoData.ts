@@ -5,8 +5,14 @@ export type StoryPollutant = {
   status: 'normal' | 'critical'
 }
 
+export type StoryChapter = {
+  id: string
+  title: string
+}
+
 export type StorySlide = {
   id: string
+  chapterId: string
   title: string
   finding: string
   body: string
@@ -33,6 +39,7 @@ export type LandingStory = {
   storyTitle: string
   description: string
   filters: StoryFilter[]
+  chapters: StoryChapter[]
   slides: StorySlide[]
 }
 
@@ -50,10 +57,16 @@ const DEFAULT_POLLUTANTS: StoryPollutant[] = [
 const FINDING =
   'AQI levels at these districts stations have stayed elevated over the past three months driven largely by NO2, which was has reportedly breached safe thresholds'
 
+function makeChapters(prefix: string): StoryChapter[] {
+  return [{ id: `${prefix}-chapter-1`, title: 'Chapter 1' }]
+}
+
 function makeSlides(prefix: string): StorySlide[] {
+  const chapterId = `${prefix}-chapter-1`
   return [
     {
       id: `${prefix}-1`,
+      chapterId,
       title: 'Top Emissions Districts Stations AQI',
       finding: FINDING,
       body: FINDING,
@@ -66,6 +79,7 @@ function makeSlides(prefix: string): StorySlide[] {
     },
     {
       id: `${prefix}-2`,
+      chapterId,
       title: 'Corridor Heat Concentration',
       finding:
         'Heat intensity clusters along the Mussafah–ICAD industrial corridor, overlapping the highest NO2 readings from the prior quarter.',
@@ -79,6 +93,7 @@ function makeSlides(prefix: string): StorySlide[] {
     },
     {
       id: `${prefix}-3`,
+      chapterId,
       title: 'Vehicle Idle Hotspots',
       finding:
         'Idling vehicle clusters coincide with elevated PM2.5 pockets near port approach roads during morning freight windows.',
@@ -112,6 +127,7 @@ export const LANDING_STORIES: LandingStory[] = [
       { id: 'gender', label: 'School Gender' },
       { id: 'level', label: 'School Level' },
     ],
+    chapters: makeChapters('r1'),
     slides: makeSlides('r1'),
   },
 ]

@@ -60,19 +60,42 @@
 .titleGroup {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   min-width: 0;
   flex: 1;
 }
 
 .storyTitle {
   margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.slideTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.slideTitle {
+  margin: 0;
+  overflow: hidden;
   font-size: 18px;
   font-weight: 600;
   line-height: 24px;
   text-shadow: 0 4px 40px rgba(0, 0, 0, 0.2);
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -243,13 +266,6 @@
   text-shadow: 0 4px 40px rgba(0, 0, 0, 0.2);
 }
 
-.slideHeading {
-  margin: 0;
-  font-size: 32px;
-  font-weight: 600;
-  line-height: 40px;
-}
-
 .finding {
   margin: 0;
   font-size: 20px;
@@ -392,7 +408,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  text-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+  user-select: none;
 }
 
 .pollutantValue strong {
@@ -599,11 +615,6 @@
 
   .mapData {
     width: min(280px, calc(100% - 40px));
-  }
-
-  .slideHeading {
-    font-size: 26px;
-    line-height: 32px;
   }
 
   .finding {
