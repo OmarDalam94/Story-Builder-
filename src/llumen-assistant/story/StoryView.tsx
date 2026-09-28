@@ -38,7 +38,7 @@ import {
   type StoryChapter,
   type StorySlide,
 } from './storyDemoData'
-import { StoryMap, type StoryMapLayerVisibility } from './StoryMap'
+import { StoryMap, STORY_MAP_STYLE, type StoryMapLayerVisibility } from './StoryMap'
 import styles from './StoryView.module.css'
 
 export type StoryViewProps = {
@@ -127,6 +127,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     vehiclesActive: true,
     vehiclesIdling: true,
   })
+  const [mapStyle, setMapStyle] = useState({ id: 'aimsun-teal', url: STORY_MAP_STYLE })
 
   const activeSlideIndex = Math.min(slideIndex, slides.length - 1)
   const slide = slides[activeSlideIndex]
@@ -154,7 +155,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
 
   return (
     <div className={styles.root} aria-label={`${story.storyTitle} story`}>
-      <StoryMap className={styles.map} layers={layers} />
+      <StoryMap className={styles.map} layers={layers} styleUrl={mapStyle.url} />
 
       <div className={styles.overlay}>
         <header className={styles.header} dir={presentationSettings.textDirection}>
@@ -187,10 +188,13 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               <div
                 id="story-edit-tools"
                 className={`${styles.editTools}${editMenuOpen ? ` ${styles.editToolsOpen}` : ''}`}
+                role="tablist"
+                aria-label="Edit story"
                 aria-hidden={!editMenuOpen}
                 inert={!editMenuOpen}
               >
-                <div className={styles.editToolsInner}>
+                <div className={styles.editToolsClip}>
+                  <div className={styles.editToolsInner}>
                   {(
                     [
                       { id: 'story', label: 'Story Config', icon: BookOpen },
@@ -203,8 +207,9 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                     <button
                       key={id}
                       type="button"
+                      role="tab"
                       className={`${styles.editTool}${editSection === id ? ` ${styles.editToolActive}` : ''}`}
-                      aria-expanded={editSection === id}
+                      aria-selected={editSection === id}
                       aria-controls="story-edit-modal"
                       onClick={() => setEditSection((current) => (current === id ? null : id))}
                     >
@@ -212,6 +217,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                       {label}
                     </button>
                   ))}
+                  </div>
                 </div>
               </div>
               <button
@@ -430,6 +436,8 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               onBack()
             }}
             onClose={() => setEditSection(null)}
+            mapStyleId={mapStyle.id}
+            onMapStyleChange={setMapStyle}
           />
         ) : null}
 

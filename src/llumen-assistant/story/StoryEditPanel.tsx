@@ -1,24 +1,39 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type ComponentType, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowLeft,
-  ArrowsOut,
+  Buildings,
+  CalendarBlank,
   CaretDown,
+  AppWindow,
   ChartLine,
+  Circle,
   Copy,
   DotsThreeVertical,
   FunnelSimple,
+  GenderIntersex,
+  Globe,
+  Image as ImageIcon,
   MagnifyingGlass,
   MapPin,
+  Minus,
   PencilSimple,
   Plus,
-  ShareNetwork,
+  Question,
+  Quotes,
+  Slideshow,
   SquaresFour,
-  CalendarBlank,
+  Student,
+  Table,
+  TextB,
+  TextT,
   Trash,
+  VideoCamera,
+  WaveSine,
   X,
 } from '@phosphor-icons/react'
-import { landingAssets, storyThumbLayers } from '../landing/landingAssets'
+import { storyThumbLayers, landingAssets } from '../landing/landingAssets'
+import { STORY_MAP_STYLE } from './StoryMap'
 import type { StoryChapter, StoryFilter, StorySlide } from './storyDemoData'
 import styles from './StoryEditPanel.module.css'
 
@@ -48,6 +63,8 @@ export type StoryEditPanelProps = {
   onDeleteSlide: (slideId: string) => void
   onDeleteSlides: () => void
   onClose: () => void
+  mapStyleId: string
+  onMapStyleChange: (style: { id: string; url: string }) => void
   section: StoryEditSection
 }
 
@@ -80,20 +97,19 @@ export function StoryEditPanel({
   onAddSlide,
   onDuplicateSlide,
   onDeleteSlide,
-  onDeleteSlides,
   onClose,
+  mapStyleId,
+  onMapStyleChange,
   section,
 }: StoryEditPanelProps) {
   const [isEditingSlide, setIsEditingSlide] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [assetsExpanded, setAssetsExpanded] = useState(false)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     setIsEditingSlide(false)
     setMenuOpen(false)
-    setAssetsExpanded(false)
   }, [section])
 
   const slide = slides[activeSlideIndex]
@@ -107,7 +123,7 @@ export function StoryEditPanel({
       : section === 'assets'
         ? 'Assets & Filters'
         : section === 'map'
-          ? 'Map'
+          ? 'Map Style Configuration'
           : section === 'tools'
           ? 'Tools'
           : isEditingSlide
@@ -164,25 +180,6 @@ export function StoryEditPanel({
     onSlideChange({ ...slide, [key]: value })
   }
 
-  const shareSlides = async () => {
-    const shareData = {
-      title: storyTitle,
-      text: storyDescription,
-      url: window.location.href,
-    }
-    try {
-      if (navigator.share) {
-        await navigator.share(shareData)
-      } else {
-        await navigator.clipboard.writeText(shareData.url)
-      }
-    } catch {
-      setMenuOpen(false)
-      return
-    }
-    setMenuOpen(false)
-  }
-
   return createPortal(
     <div className={styles.modalRoot}>
       <button type="button" className={styles.modalBackdrop} aria-label="Close settings" onClick={onClose} />
@@ -190,7 +187,9 @@ export function StoryEditPanel({
         id="story-edit-modal"
         className={`${styles.panel} ${styles.modal}${
           section === 'assets' ? ` ${styles.assetsModal}` : ''
-        }${assetsExpanded ? ` ${styles.assetsModalExpanded}` : ''}`}
+        }${section === 'map' ? ` ${styles.mapModal}` : ''}${
+          section === 'tools' ? ` ${styles.toolsModal}` : ''
+        }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="story-edit-modal-title"
@@ -199,8 +198,6 @@ export function StoryEditPanel({
       {section === 'assets' ? (
         <AssetsPicker
           filters={filters}
-          expanded={assetsExpanded}
-          onExpandedChange={setAssetsExpanded}
           onFiltersChange={onFiltersChange}
           onClose={onClose}
         />
@@ -257,6 +254,18 @@ export function StoryEditPanel({
         </div>
       </header>
 
+      {section === 'map' ? (
+        <MapStylePicker
+          appliedStyleId={mapStyleId}
+          onApply={(style) => {
+            onMapStyleChange(style)
+            onClose()
+          }}
+          onCancel={onClose}
+        />
+      ) : section === 'tools' ? (
+        <ToolsSection />
+      ) : (
       <div
         key={section === 'slide' && isEditingSlide ? `slide-${slide.id}` : section}
         className={styles.scroll}
@@ -305,17 +314,8 @@ export function StoryEditPanel({
             />
           )
         ) : null}
-        {section === 'map' ? <MapSection /> : null}
-        {section === 'tools' ? (
-          <ToolsSection
-            canRemoveSlide={slides.length > 1}
-            onDuplicateSlide={() => onDuplicateSlide()}
-            onDeleteSlide={() => onDeleteSlide(slide.id)}
-            onShare={() => void shareSlides()}
-            onDeleteSlides={onDeleteSlides}
-          />
-        ) : null}
       </div>
+      )}
       {menuOpen
         ? createPortal(
             <div
@@ -450,22 +450,32 @@ const FILTER_CATALOG = [
   { id: 'filter-day', label: 'Day', category: 'Time', icon: 'calendar' },
 ] as const
 
-function FilterGlyph({ icon }: { icon: (typeof FILTER_CATALOG)[number]['icon'] }) {
+type FilterIcon = (typeof FILTER_CATALOG)[number]['icon'] | 'buildings' | 'gender' | 'student'
+
+const STORY_FILTER_ICON: Record<string, FilterIcon> = {
+  loc: 'pin',
+  year: 'calendar',
+  ssi: 'grid',
+  type: 'buildings',
+  gender: 'gender',
+  level: 'student',
+}
+
+function FilterGlyph({ icon }: { icon: FilterIcon }) {
   if (icon === 'pin') return <MapPin size={28} weight="regular" aria-hidden />
   if (icon === 'grid') return <SquaresFour size={28} weight="regular" aria-hidden />
+  if (icon === 'buildings') return <Buildings size={28} weight="regular" aria-hidden />
+  if (icon === 'gender') return <GenderIntersex size={28} weight="regular" aria-hidden />
+  if (icon === 'student') return <Student size={28} weight="regular" aria-hidden />
   return <CalendarBlank size={28} weight="regular" aria-hidden />
 }
 
 function AssetsPicker({
   filters,
-  expanded,
-  onExpandedChange,
   onFiltersChange,
   onClose,
 }: {
   filters: StoryFilter[]
-  expanded: boolean
-  onExpandedChange: (expanded: boolean) => void
   onFiltersChange: (filters: StoryFilter[]) => void
   onClose: () => void
 }) {
@@ -557,12 +567,11 @@ function AssetsPicker({
           </label>
           <button
             type="button"
-            className={styles.assetsExpand}
-            aria-label={expanded ? 'Restore assets modal' : 'Expand assets modal'}
-            aria-pressed={expanded}
-            onClick={() => onExpandedChange(!expanded)}
+            className={styles.assetsClose}
+            aria-label="Close Add Assets"
+            onClick={onClose}
           >
-            <ArrowsOut size={20} aria-hidden />
+            <X size={18} weight="bold" aria-hidden />
           </button>
         </div>
       </header>
@@ -591,13 +600,16 @@ function AssetsPicker({
                   <button
                     key={item.id}
                     type="button"
-                    className={`${styles.assetCard} ${styles.assetCardPlain}${
-                      selected.includes(item.id) ? ` ${styles.assetCardSelected}` : ''
+                    className={`${styles.assetFilter}${
+                      selected.includes(item.id) ? ` ${styles.assetFilterSelected}` : ''
                     }`}
                     aria-pressed={selected.includes(item.id)}
                     onClick={() => toggleSelected(item.id)}
                   >
-                    <span className={styles.assetCardTitle}>{item.label}</span>
+                    <span className={styles.assetFilterIcon}>
+                      <FilterGlyph icon={STORY_FILTER_ICON[item.id] ?? 'grid'} />
+                    </span>
+                    <span className={styles.assetFilterLabel}>{item.label}</span>
                   </button>
                 ))}
               {catalogFilterItems.map((item) => (
@@ -687,54 +699,102 @@ function AssetsPicker({
   )
 }
 
-function ToolsSection({
-  canRemoveSlide,
-  onDuplicateSlide,
-  onDeleteSlide,
-  onShare,
-  onDeleteSlides,
-}: {
-  canRemoveSlide: boolean
-  onDuplicateSlide: () => void
-  onDeleteSlide: () => void
-  onShare: () => void
-  onDeleteSlides: () => void
-}) {
+type ToolIcon = ComponentType<{ size?: number; weight?: 'regular'; 'aria-hidden'?: boolean }>
+type ToolGroup = 'text' | 'media' | 'misc'
+type ToolTab = 'all' | ToolGroup
+
+const TOOL_TABS: { id: ToolTab; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'text', label: 'Text' },
+  { id: 'media', label: 'Media' },
+  { id: 'misc', label: 'Misc' },
+]
+
+const STORY_TOOLS: { id: string; label: string; group: ToolGroup; icon: ToolIcon }[] = [
+  { id: 'block-quote', label: 'Block Quote', group: 'text', icon: Quotes },
+  { id: 'executive-summary', label: 'Executive Summary', group: 'text', icon: Circle },
+  { id: 'image', label: 'Image', group: 'media', icon: ImageIcon },
+  { id: 'kpi', label: 'KPI', group: 'text', icon: ChartLine },
+  { id: 'link-button', label: 'Link Button', group: 'media', icon: Globe },
+  { id: 'modal-button', label: 'Modal Button', group: 'media', icon: AppWindow },
+  { id: 'recommendation-body', label: 'Recommendation · body', group: 'text', icon: Circle },
+  { id: 'separator', label: 'Separator', group: 'misc', icon: Minus },
+  { id: 'slides-reference', label: 'Slides Reference', group: 'media', icon: Slideshow },
+  { id: 'spacing', label: 'Spacing', group: 'misc', icon: WaveSine },
+  { id: 'subtitle-deck', label: 'Subtitle · deck', group: 'text', icon: Circle },
+  { id: 'table', label: 'Table', group: 'text', icon: Table },
+  { id: 'takeaway-baseline', label: 'Takeaway · baseline', group: 'text', icon: Circle },
+  { id: 'takeaway-consequence', label: 'Takeaway · consequence', group: 'text', icon: Circle },
+  { id: 'takeaway-day', label: 'Takeaway · day', group: 'text', icon: Circle },
+  { id: 'takeaway-fidelity', label: 'Takeaway · fidelity', group: 'text', icon: Circle },
+  { id: 'takeaway-intervention', label: 'Takeaway · intervention', group: 'text', icon: Circle },
+  { id: 'takeaway-queue', label: 'Takeaway · queue', group: 'text', icon: Circle },
+  { id: 'text', label: 'Text', group: 'text', icon: TextT },
+  { id: 'title', label: 'Title', group: 'text', icon: TextB },
+  { id: 'title-deck', label: 'Title · deck', group: 'text', icon: Circle },
+  { id: 'title-recommendation', label: 'Title · recommendation', group: 'text', icon: Circle },
+  { id: 'video', label: 'Video', group: 'media', icon: VideoCamera },
+  { id: 'weekly-waste-density', label: 'Weekly Waste Density per km² KPI', group: 'text', icon: Circle },
+]
+
+function ToolsSection() {
+  const [tab, setTab] = useState<ToolTab>('all')
+  const [query, setQuery] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const normalizedQuery = query.trim().toLowerCase()
+  const tools = STORY_TOOLS.filter(
+    (tool) =>
+      (tab === 'all' || tool.group === tab) && tool.label.toLowerCase().includes(normalizedQuery),
+  )
+
   return (
-    <section className={styles.section}>
-      <div className={styles.sectionHeading}>
-        <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Story tools</h3>
+    <div className={styles.toolsBody}>
+      <label className={styles.toolsSearch}>
+        <MagnifyingGlass size={18} aria-hidden />
+        <input
+          value={query}
+          placeholder="Search custom assets..."
+          aria-label="Search custom assets"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
+      <div className={styles.toolsTabs} role="tablist" aria-label="Tool groups">
+        {TOOL_TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            className={`${styles.toolsTab}${tab === item.id ? ` ${styles.toolsTabActive}` : ''}`}
+            aria-selected={tab === item.id}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
-      <div className={styles.toolList}>
-        <button type="button" className={styles.secondaryBtn} onClick={onDuplicateSlide}>
-          <Copy size={16} aria-hidden />
-          Duplicate slide
-        </button>
-        <button type="button" className={styles.secondaryBtn} onClick={onShare}>
-          <ShareNetwork size={16} aria-hidden />
-          Share slides
-        </button>
-        <button
-          type="button"
-          className={styles.dangerBtn}
-          disabled={!canRemoveSlide}
-          onClick={onDeleteSlide}
-        >
-          <Trash size={16} aria-hidden />
-          Remove slide
-        </button>
-        <button
-          type="button"
-          className={styles.dangerBtn}
-          onClick={() => {
-            if (window.confirm('Delete this slide deck?')) onDeleteSlides()
-          }}
-        >
-          <Trash size={16} aria-hidden />
-          Delete slides
-        </button>
+      <div className={styles.toolsStage}>
+        {tools.length === 0 ? (
+          <p className={styles.toolsEmpty}>No matching tools</p>
+        ) : (
+          tools.map((tool) => {
+            const Icon = tool.icon
+            const selected = selectedId === tool.id
+            return (
+              <button
+                key={tool.id}
+                type="button"
+                className={`${styles.toolsRow}${selected ? ` ${styles.toolsRowSelected}` : ''}`}
+                aria-pressed={selected}
+                onClick={() => setSelectedId(selected ? null : tool.id)}
+              >
+                <Icon size={18} weight="regular" aria-hidden />
+                <span>{tool.label}</span>
+              </button>
+            )
+          })
+        )}
       </div>
-    </section>
+    </div>
   )
 }
 
@@ -1279,25 +1339,150 @@ function SlidesOverview({
   )
 }
 
-function MapSection() {
-  const mapThumb = storyThumbLayers('map')
+const MAP_STYLE_OPTIONS = [
+  {
+    id: 'aimsun-base',
+    name: 'Aimsun Base',
+    description: 'Aimsun base map style',
+    url: 'mapbox://styles/mapbox/dark-v11',
+    image: landingAssets.storyThumbMapBase,
+  },
+  {
+    id: 'aimsun-default',
+    name: 'Aimsun Default',
+    description: 'Aimsun default dark map style',
+    url: 'mapbox://styles/mapbox/navigation-night-v1',
+    image: landingAssets.assetLayerPins,
+  },
+  {
+    id: 'aimsun-light',
+    name: 'Aimsun Light',
+    description: 'Aimsun light map style',
+    url: 'mapbox://styles/mapbox/light-v11',
+    image: landingAssets.storyThumbChartBase,
+  },
+  {
+    id: 'aimsun-teal',
+    name: 'Aimsun Teal',
+    description: 'Aimsun teal map style',
+    url: STORY_MAP_STYLE,
+    image: landingAssets.assetLayerPermit,
+  },
+  {
+    id: 'dubai-dark-blue',
+    name: 'Dubai Dark Blue',
+    description: 'Style URL missing',
+  },
+  {
+    id: 'itc',
+    name: 'ITC',
+    description: 'Style URL missing',
+  },
+] as const
+
+function MapStylePicker({
+  appliedStyleId,
+  onApply,
+  onCancel,
+}: {
+  appliedStyleId: string
+  onApply: (style: { id: string; url: string }) => void
+  onCancel: () => void
+}) {
+  const [stylesList, setStylesList] = useState<
+    { id: string; name: string; description: string; url?: string; image?: string }[]
+  >([...MAP_STYLE_OPTIONS])
+  const [selectedId, setSelectedId] = useState(appliedStyleId)
+  const [customOpen, setCustomOpen] = useState(false)
+  const [customUrl, setCustomUrl] = useState('')
+  const selected = stylesList.find((style) => style.id === selectedId)
+
+  const addCustomStyle = () => {
+    const url = customUrl.trim()
+    if (!url) return
+    const id = `custom-${Date.now()}`
+    setStylesList((items) => [
+      ...items,
+      { id, name: 'Custom style', description: url, url, image: landingAssets.assetLayerTerrain },
+    ])
+    setSelectedId(id)
+    setCustomUrl('')
+    setCustomOpen(false)
+  }
 
   return (
-    <section className={styles.section}>
-      <div className={styles.mapCard}>
-        <span className={styles.mapThumb} aria-hidden>
-          <img src={mapThumb.image} alt="" />
-          {mapThumb.overlay ? <img src={mapThumb.overlay} alt="" /> : null}
-        </span>
-        <span className={styles.mapCopy}>
-          <span className={styles.mapName}>Map</span>
-          <span className={styles.mapStyleName}>Custom style</span>
-        </span>
-        <button type="button" className={styles.mapChange}>
-          Change
+    <div className={styles.mapStyleBody}>
+      <div className={styles.mapStyleIntro}>
+        <p className={styles.mapStyleHint}>Select a map style for your slides&apos;s background</p>
+        <button type="button" className={styles.addBtn} onClick={() => setCustomOpen((open) => !open)}>
+          <Plus size={15} weight="bold" aria-hidden />
+          Custom Style URL
         </button>
       </div>
-    </section>
+      {customOpen ? (
+        <form
+          className={styles.mapStyleCustom}
+          onSubmit={(event) => {
+            event.preventDefault()
+            addCustomStyle()
+          }}
+        >
+          <input
+            className={styles.input}
+            value={customUrl}
+            placeholder="mapbox://styles/..."
+            aria-label="Custom style URL"
+            onChange={(event) => setCustomUrl(event.target.value)}
+          />
+          <button type="submit" className={styles.secondaryBtn} disabled={!customUrl.trim()}>
+            Add
+          </button>
+        </form>
+      ) : null}
+      <div className={styles.mapStyleStage}>
+        <div className={styles.mapStyleGrid}>
+          {stylesList.map((style) => (
+            <button
+              key={style.id}
+              type="button"
+              className={`${styles.mapStyleCard}${
+                selectedId === style.id ? ` ${styles.mapStyleCardSelected}` : ''
+              }`}
+              aria-pressed={selectedId === style.id}
+              onClick={() => setSelectedId(style.id)}
+            >
+              <span className={styles.mapStylePreview}>
+                {style.image ? (
+                  <img src={style.image} alt="" />
+                ) : (
+                  <Question size={42} weight="regular" aria-hidden />
+                )}
+              </span>
+              <span className={styles.mapStyleCopy}>
+                <span className={styles.mapStyleCardName}>{style.name}</span>
+                <span className={styles.mapStyleCardDesc}>{style.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <footer className={styles.mapStyleFooter}>
+        <button type="button" className={styles.secondaryBtn} onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className={styles.assetsNext}
+          disabled={!selected?.url}
+          onClick={() => {
+            if (!selected?.url) return
+            onApply({ id: selected.id, url: selected.url })
+          }}
+        >
+          Apply Style
+        </button>
+      </footer>
+    </div>
   )
 }
 

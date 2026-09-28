@@ -147,8 +147,8 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   margin: 0;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -174,7 +174,6 @@
 .editCluster {
   display: flex;
   align-items: center;
-  gap: 8px;
   flex-shrink: 0;
   pointer-events: auto;
 }
@@ -182,78 +181,73 @@
 .editTools {
   display: grid;
   grid-template-columns: 0fr;
-  transition: grid-template-columns 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+  min-width: 0;
+  margin-right: 0;
+  overflow: hidden;
+  transition:
+    grid-template-columns 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) 0.12s,
+    margin-right 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) 0.12s;
 }
 
 .editToolsOpen {
   grid-template-columns: 1fr;
+  margin-right: 8px;
+  transition:
+    grid-template-columns 0.38s cubic-bezier(0.2, 0.8, 0.2, 1),
+    margin-right 0.38s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.editToolsClip {
+  min-width: 0;
+  overflow: hidden;
 }
 
 .editToolsInner {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  overflow: hidden;
+  align-items: stretch;
+  justify-content: flex-end;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(34, 42, 42, 0.5);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.editToolsOpen .editToolsInner {
+  opacity: 1;
+  transition: none;
 }
 
 .editTool {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
+  flex-shrink: 0;
+  height: 100%;
   margin: 0;
   padding: 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  background: rgba(34, 42, 42, 0.5);
-  backdrop-filter: blur(30px);
-  -webkit-backdrop-filter: blur(30px);
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: rgba(255, 255, 255, 0.88);
   font: inherit;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  opacity: 0;
-  transform: translateX(12px);
-  transition:
-    opacity 0.22s ease,
-    transform 0.34s cubic-bezier(0.2, 0.8, 0.2, 1),
-    background 0.15s,
-    border-color 0.15s,
-    color 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 
-.editToolsOpen .editTool {
-  opacity: 1;
-  transform: translateX(0);
-}
-
-.editToolsOpen .editTool:nth-child(5) {
-  transition-delay: 0.02s;
-}
-
-.editToolsOpen .editTool:nth-child(4) {
-  transition-delay: 0.07s;
-}
-
-.editToolsOpen .editTool:nth-child(3) {
-  transition-delay: 0.12s;
-}
-
-.editToolsOpen .editTool:nth-child(2) {
-  transition-delay: 0.17s;
-}
-
-.editToolsOpen .editTool:nth-child(1) {
-  transition-delay: 0.22s;
+.editTool + .editTool {
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.14);
 }
 
 .editTool:hover,
 .editToolActive {
-  border-color: rgba(132, 220, 255, 0.38);
-  background: rgba(132, 220, 255, 0.14);
+  background: rgba(132, 220, 255, 0.16);
   color: #fff;
 }
 

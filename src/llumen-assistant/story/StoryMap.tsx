@@ -10,6 +10,7 @@ import styles from './StoryMap.module.css'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? ''
 const MAPBOX_STYLE = 'mapbox://styles/pixonal/cmgnqbyjf005g01sh9s510hi2'
+export const STORY_MAP_STYLE = MAPBOX_STYLE
 const CENTER: [number, number] = [54.345474, 24.476976]
 const ZOOM = 11.669772
 const PITCH = 72
@@ -86,6 +87,7 @@ export type StoryMapLayerVisibility = {
 export type StoryMapProps = {
   className?: string
   layers?: StoryMapLayerVisibility
+  styleUrl?: string
 }
 
 const DEFAULT_LAYERS: StoryMapLayerVisibility = {
@@ -94,13 +96,121 @@ const DEFAULT_LAYERS: StoryMapLayerVisibility = {
   vehiclesIdling: true,
 }
 
+async function mountStoryLayers(map: mapboxgl.Map, layers: StoryMapLayerVisibility) {
+  map.resize()
+  await Promise.all([
+    loadIcon(map, 'diamond-active', `${iconBase}/diamond-map-idling.svg`),
+    loadIcon(map, 'diamond-idling', `${iconBase}/diamond-map-active.svg`),
+  ])
+  if (map.getSource('story-heat')) return
+
+  const data = buildDemoLayers()
+  map.addSource('story-heat', { type: 'geojson', data: data.heat })
+  map.addSource('story-vehicles', { type: 'geojson', data: data.vehicles })
+  map.addSource('story-aqi', { type: 'geojson', data: data.aqi })
+
+  map.addLayer({
+    id: 'story-utilization',
+    type: 'heatmap',
+    source: 'story-heat',
+    paint: {
+      'heatmap-weight': ['/', ['get', 'mag'], 10],
+      'heatmap-intensity': 0.9,
+      'heatmap-radius': 42,
+      'heatmap-opacity': 0.72,
+      'heatmap-color': [
+        'interpolate',
+        ['linear'],
+        ['heatmap-density'],
+        0,
+        'rgba(61,61,223,0)',
+        0.2,
+        '#3d3ddf',
+        0.65,
+        '#8b5cf0',
+        1,
+        '#e0744c',
+      ],
+    },
+  })
+
+  map.addLayer({
+    id: 'story-aqi',
+    type: 'circle',
+    source: 'story-aqi',
+    paint: {
+      'circle-radius': 22,
+      'circle-blur': 0.4,
+      'circle-color': [
+        'interpolate',
+        ['linear'],
+        ['get', 'aqi'],
+        0,
+        '#8bc17c',
+        50,
+        '#e0c27a',
+        100,
+        '#e39b4c',
+        150,
+        '#e43963',
+        200,
+        '#bd2695',
+        300,
+        '#b21b1b',
+      ],
+      'circle-opacity': 0.35,
+    },
+  })
+
+  map.addLayer({
+    id: 'story-vehicles-active',
+    type: 'symbol',
+    source: 'story-vehicles',
+    filter: ['==', ['get', 'status'], 'active'],
+    layout: {
+      'icon-image': 'diamond-active',
+      'icon-size': 0.9,
+      'icon-allow-overlap': true,
+    },
+  })
+
+  map.addLayer({
+    id: 'story-vehicles-idling',
+    type: 'symbol',
+    source: 'story-vehicles',
+    filter: ['==', ['get', 'status'], 'idling'],
+    layout: {
+      'icon-image': 'diamond-idling',
+      'icon-size': 0.9,
+      'icon-allow-overlap': true,
+    },
+  })
+
+  map.setLayoutProperty('story-utilization', 'visibility', layers.utilization ? 'visible' : 'none')
+  map.setLayoutProperty(
+    'story-vehicles-active',
+    'visibility',
+    layers.vehiclesActive ? 'visible' : 'none',
+  )
+  map.setLayoutProperty(
+    'story-vehicles-idling',
+    'visibility',
+    layers.vehiclesIdling ? 'visible' : 'none',
+  )
+}
+
 /** Full Mapbox story canvas with map-legend demo overlays. */
-export function StoryMap({ className, layers = DEFAULT_LAYERS }: StoryMapProps) {
+export function StoryMap({
+  className,
+  layers = DEFAULT_LAYERS,
+  styleUrl = STORY_MAP_STYLE,
+}: StoryMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const handleRef = useRef<InteractiveMapHandle | null>(null)
   const [ready, setReady] = useState(false)
   const layersRef = useRef(layers)
+  const appliedStyleRef = useRef(styleUrl)
 
   useEffect(() => {
     layersRef.current = layers
@@ -113,7 +223,7 @@ export function StoryMap({ className, layers = DEFAULT_LAYERS }: StoryMapProps) 
     mapboxgl.accessToken = MAPBOX_TOKEN
     const map = new mapboxgl.Map({
       container: el,
-      style: MAPBOX_STYLE,
+      style: styleUrl,
       center: CENTER,
       zoom: ZOOM,
       pitch: PITCH,
@@ -128,112 +238,11 @@ export function StoryMap({ className, layers = DEFAULT_LAYERS }: StoryMapProps) 
     map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right')
     mapRef.current = map
 
-    const data = buildDemoLayers()
     const observer = new ResizeObserver(() => map.resize())
     observer.observe(el)
 
-    map.on('load', async () => {
-      map.resize()
-      await Promise.all([
-        loadIcon(map, 'diamond-active', `${iconBase}/diamond-map-idling.svg`),
-        loadIcon(map, 'diamond-idling', `${iconBase}/diamond-map-active.svg`),
-      ])
-
-      map.addSource('story-heat', { type: 'geojson', data: data.heat })
-      map.addSource('story-vehicles', { type: 'geojson', data: data.vehicles })
-      map.addSource('story-aqi', { type: 'geojson', data: data.aqi })
-
-      map.addLayer({
-        id: 'story-utilization',
-        type: 'heatmap',
-        source: 'story-heat',
-        paint: {
-          'heatmap-weight': ['/', ['get', 'mag'], 10],
-          'heatmap-intensity': 0.9,
-          'heatmap-radius': 42,
-          'heatmap-opacity': 0.72,
-          'heatmap-color': [
-            'interpolate',
-            ['linear'],
-            ['heatmap-density'],
-            0,
-            'rgba(61,61,223,0)',
-            0.2,
-            '#3d3ddf',
-            0.65,
-            '#8b5cf0',
-            1,
-            '#e0744c',
-          ],
-        },
-      })
-
-      map.addLayer({
-        id: 'story-aqi',
-        type: 'circle',
-        source: 'story-aqi',
-        paint: {
-          'circle-radius': 22,
-          'circle-blur': 0.4,
-          'circle-color': [
-            'interpolate',
-            ['linear'],
-            ['get', 'aqi'],
-            0,
-            '#8bc17c',
-            50,
-            '#e0c27a',
-            100,
-            '#e39b4c',
-            150,
-            '#e43963',
-            200,
-            '#bd2695',
-            300,
-            '#b21b1b',
-          ],
-          'circle-opacity': 0.35,
-        },
-      })
-
-      map.addLayer({
-        id: 'story-vehicles-active',
-        type: 'symbol',
-        source: 'story-vehicles',
-        filter: ['==', ['get', 'status'], 'active'],
-        layout: {
-          'icon-image': 'diamond-active',
-          'icon-size': 0.9,
-          'icon-allow-overlap': true,
-        },
-      })
-
-      map.addLayer({
-        id: 'story-vehicles-idling',
-        type: 'symbol',
-        source: 'story-vehicles',
-        filter: ['==', ['get', 'status'], 'idling'],
-        layout: {
-          'icon-image': 'diamond-idling',
-          'icon-size': 0.9,
-          'icon-allow-overlap': true,
-        },
-      })
-
-      const vis = layersRef.current
-      map.setLayoutProperty('story-utilization', 'visibility', vis.utilization ? 'visible' : 'none')
-      map.setLayoutProperty(
-        'story-vehicles-active',
-        'visibility',
-        vis.vehiclesActive ? 'visible' : 'none',
-      )
-      map.setLayoutProperty(
-        'story-vehicles-idling',
-        'visibility',
-        vis.vehiclesIdling ? 'visible' : 'none',
-      )
-
-      setReady(true)
+    map.on('load', () => {
+      void mountStoryLayers(map, layersRef.current).then(() => setReady(true))
     })
 
     handleRef.current = {
@@ -266,6 +275,17 @@ export function StoryMap({ className, layers = DEFAULT_LAYERS }: StoryMapProps) 
       layers.vehiclesIdling ? 'visible' : 'none',
     )
   }, [layers, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || appliedStyleRef.current === styleUrl) return
+    appliedStyleRef.current = styleUrl
+    setReady(false)
+    map.once('style.load', () => {
+      void mountStoryLayers(map, layersRef.current).then(() => setReady(true))
+    })
+    map.setStyle(styleUrl)
+  }, [ready, styleUrl])
 
   return (
     <div className={[styles.root, className].filter(Boolean).join(' ')}>
