@@ -213,6 +213,7 @@
   backdrop-filter: blur(30px);
   -webkit-backdrop-filter: blur(30px);
   opacity: 0;
+  overflow: hidden;
   transition: opacity 0.12s ease;
 }
 
@@ -239,6 +240,14 @@
   white-space: nowrap;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+}
+
+.editTool:first-child {
+  border-radius: 999px 0 0 999px;
+}
+
+.editTool:last-child {
+  border-radius: 0 999px 999px 0;
 }
 
 .editTool + .editTool {
