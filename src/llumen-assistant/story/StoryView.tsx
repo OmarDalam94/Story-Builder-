@@ -6,22 +6,31 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   Buildings,
   CalendarBlank,
   CaretDown,
   Eye,
   GenderIntersex,
+  GridFour,
   Info,
   MapPin,
+  MapTrifold,
   Pause,
   PencilSimple,
   Play,
+  Slideshow,
   Student,
   SquaresFour,
+  Wrench,
   X,
 } from '@phosphor-icons/react'
 import { llumenAssets } from '../assets'
-import { StoryEditPanel, type StoryPresentationSettings } from './StoryEditPanel'
+import {
+  StoryEditPanel,
+  type StoryEditSection,
+  type StoryPresentationSettings,
+} from './StoryEditPanel'
 import {
   getLandingStory,
   type LandingStory,
@@ -98,7 +107,7 @@ function makePresentationSettings(): StoryPresentationSettings {
 export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryViewProps) {
   const story = useMemo(() => getLandingStory(storyId), [storyId])
   const [storyTitle, setStoryTitle] = useState(story.storyTitle)
-  const storyDescription = story.description
+  const [storyDescription, setStoryDescription] = useState(story.description)
   const [presentationSettings, setPresentationSettings] = useState(makePresentationSettings)
   const [autoplaying, setAutoplaying] = useState(false)
   const [slideIndex, setSlideIndex] = useState(0)
@@ -110,7 +119,8 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     makeFilterMap(story.slides, story.filters),
   )
   const [legendOpen, setLegendOpen] = useState(true)
-  const [editOpen, setEditOpen] = useState(false)
+  const [editMenuOpen, setEditMenuOpen] = useState(false)
+  const [editSection, setEditSection] = useState<StoryEditSection | null>(null)
   const [infoOpen, setInfoOpen] = useState(false)
   const [layers, setLayers] = useState<StoryMapLayerVisibility>({
     utilization: true,
@@ -173,16 +183,55 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 </div>
               ) : null}
             </div>
-            <button
-              type="button"
-              className={`${styles.editBtn}${editOpen ? ` ${styles.editBtnActive}` : ''}`}
-              aria-expanded={editOpen}
-              aria-controls="story-edit-panel"
-              onClick={() => setEditOpen((open) => !open)}
-            >
-              <PencilSimple size={16} weight="regular" aria-hidden />
-              <span>Edit</span>
-            </button>
+            <div className={styles.editCluster} dir="ltr">
+              <div
+                id="story-edit-tools"
+                className={`${styles.editTools}${editMenuOpen ? ` ${styles.editToolsOpen}` : ''}`}
+                aria-hidden={!editMenuOpen}
+                inert={!editMenuOpen}
+              >
+                <div className={styles.editToolsInner}>
+                  {(
+                    [
+                      { id: 'story', label: 'Story Config', icon: BookOpen },
+                      { id: 'slide', label: 'Slides Config', icon: Slideshow },
+                      { id: 'assets', label: 'Assets & Filters', icon: GridFour },
+                      { id: 'map', label: 'Map', icon: MapTrifold },
+                      { id: 'tools', label: 'Tools', icon: Wrench },
+                    ] as const
+                  ).map(({ id, label, icon: Icon }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`${styles.editTool}${editSection === id ? ` ${styles.editToolActive}` : ''}`}
+                      aria-expanded={editSection === id}
+                      aria-controls="story-edit-modal"
+                      onClick={() => setEditSection((current) => (current === id ? null : id))}
+                    >
+                      <Icon size={16} weight="regular" aria-hidden />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                className={`${styles.editBtn}${editMenuOpen ? ` ${styles.editBtnActive}` : ''}`}
+                aria-label="Edit"
+                aria-expanded={editMenuOpen}
+                aria-controls="story-edit-tools"
+                onClick={() => {
+                  if (editMenuOpen) {
+                    setEditMenuOpen(false)
+                    setEditSection(null)
+                    return
+                  }
+                  setEditMenuOpen(true)
+                }}
+              >
+                <PencilSimple size={16} weight="regular" aria-hidden />
+              </button>
+            </div>
           </div>
           <div className={styles.filters}>
             {filters.map((f) => (
@@ -269,8 +318,9 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           </aside>
         </div>
 
-        {editOpen ? (
+        {editSection ? (
           <StoryEditPanel
+            section={editSection}
             storyTitle={storyTitle}
             storyDescription={storyDescription}
             presentationSettings={presentationSettings}
@@ -279,6 +329,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             activeSlideIndex={activeSlideIndex}
             filters={filters}
             onStoryTitleChange={setStoryTitle}
+            onStoryDescriptionChange={setStoryDescription}
             onPresentationSettingsChange={(settings) => {
               setPresentationSettings(settings)
               if (!settings.autoplay || !settings.multiSlide) setAutoplaying(false)
@@ -374,10 +425,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               })
             }}
             onDeleteSlides={() => {
-              setEditOpen(false)
+              setEditMenuOpen(false)
+              setEditSection(null)
               onBack()
             }}
-            onClose={() => setEditOpen(false)}
+            onClose={() => setEditSection(null)}
           />
         ) : null}
 

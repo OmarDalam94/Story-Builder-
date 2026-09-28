@@ -2,20 +2,29 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { createPortal } from 'react-dom'
 import {
   ArrowLeft,
+  ArrowsOut,
   CaretDown,
+  ChartLine,
   Copy,
   DotsThreeVertical,
+  FunnelSimple,
+  MagnifyingGlass,
+  MapPin,
   PencilSimple,
   Plus,
   ShareNetwork,
+  SquaresFour,
+  CalendarBlank,
   Trash,
   X,
 } from '@phosphor-icons/react'
-import { storyThumbLayers } from '../landing/landingAssets'
+import { landingAssets, storyThumbLayers } from '../landing/landingAssets'
 import type { StoryChapter, StoryFilter, StorySlide } from './storyDemoData'
 import styles from './StoryEditPanel.module.css'
 
 const SLIDE_THUMB_VARIANTS = ['map', 'chart', 'satellite'] as const
+
+export type StoryEditSection = 'story' | 'slide' | 'assets' | 'map' | 'tools'
 
 export type StoryEditPanelProps = {
   storyTitle: string
@@ -26,6 +35,7 @@ export type StoryEditPanelProps = {
   activeSlideIndex: number
   filters: StoryFilter[]
   onStoryTitleChange: (value: string) => void
+  onStoryDescriptionChange: (value: string) => void
   onPresentationSettingsChange: (settings: StoryPresentationSettings) => void
   onSelectSlide: (index: number) => void
   onSlideChange: (slide: StorySlide) => void
@@ -38,6 +48,7 @@ export type StoryEditPanelProps = {
   onDeleteSlide: (slideId: string) => void
   onDeleteSlides: () => void
   onClose: () => void
+  section: StoryEditSection
 }
 
 export type StoryPresentationSettings = {
@@ -58,6 +69,7 @@ export function StoryEditPanel({
   activeSlideIndex,
   filters,
   onStoryTitleChange,
+  onStoryDescriptionChange,
   onPresentationSettingsChange,
   onSelectSlide,
   onSlideChange,
@@ -70,17 +82,37 @@ export function StoryEditPanel({
   onDeleteSlide,
   onDeleteSlides,
   onClose,
+  section,
 }: StoryEditPanelProps) {
   const [isEditingSlide, setIsEditingSlide] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [assetsExpanded, setAssetsExpanded] = useState(false)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    setIsEditingSlide(false)
+    setMenuOpen(false)
+    setAssetsExpanded(false)
+  }, [section])
+
   const slide = slides[activeSlideIndex]
   const slideChapter = chapters.find((chapter) => chapter.id === slide?.chapterId)
   const chapterSlides = slides.filter((item) => item.chapterId === slide?.chapterId)
   const slideNumber = chapterSlides.findIndex((item) => item.id === slide?.id) + 1
   const slideHeading = `${slideChapter?.title ?? 'Chapter'} / Slide ${Math.max(slideNumber, 1)}`
+  const modalTitle =
+    section === 'story'
+      ? 'Story Configuration'
+      : section === 'assets'
+        ? 'Assets & Filters'
+        : section === 'map'
+          ? 'Map'
+          : section === 'tools'
+          ? 'Tools'
+          : isEditingSlide
+            ? slideHeading
+            : 'Slides Configuration'
 
   const syncMenuPosition = useCallback(() => {
     const button = menuButtonRef.current
@@ -151,11 +183,32 @@ export function StoryEditPanel({
     setMenuOpen(false)
   }
 
-  return (
-    <aside id="story-edit-panel" className={styles.panel} aria-label="Story settings" dir="ltr">
+  return createPortal(
+    <div className={styles.modalRoot}>
+      <button type="button" className={styles.modalBackdrop} aria-label="Close settings" onClick={onClose} />
+      <div
+        id="story-edit-modal"
+        className={`${styles.panel} ${styles.modal}${
+          section === 'assets' ? ` ${styles.assetsModal}` : ''
+        }${assetsExpanded ? ` ${styles.assetsModalExpanded}` : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="story-edit-modal-title"
+        dir="ltr"
+      >
+      {section === 'assets' ? (
+        <AssetsPicker
+          filters={filters}
+          expanded={assetsExpanded}
+          onExpandedChange={setAssetsExpanded}
+          onFiltersChange={onFiltersChange}
+          onClose={onClose}
+        />
+      ) : (
+      <>
       <header className={styles.header}>
         <div className={styles.headerIdentity}>
-          {isEditingSlide && (
+          {section === 'slide' && isEditingSlide && (
             <button
               type="button"
               className={styles.backBtn}
@@ -163,17 +216,17 @@ export function StoryEditPanel({
                 setMenuOpen(false)
                 setIsEditingSlide(false)
               }}
-              aria-label="Back to Story builder"
+              aria-label="Back to slides"
             >
               <ArrowLeft size={18} weight="bold" aria-hidden />
             </button>
           )}
           <div className={styles.headerCopy}>
             <div className={styles.titleLine}>
-              <h2 className={styles.title}>
-                {isEditingSlide ? slideHeading : 'Edit Story'}
+              <h2 id="story-edit-modal-title" className={styles.title}>
+                {modalTitle}
               </h2>
-              {!isEditingSlide || presentationSettings.multiSlide ? (
+              {section === 'slide' && isEditingSlide && presentationSettings.multiSlide ? (
                 <button
                   ref={menuButtonRef}
                   type="button"
@@ -205,28 +258,38 @@ export function StoryEditPanel({
       </header>
 
       <div
-        key={isEditingSlide ? `slide-${slide.id}` : 'story-overview'}
+        key={section === 'slide' && isEditingSlide ? `slide-${slide.id}` : section}
         className={styles.scroll}
       >
-        {isEditingSlide ? (
-          <SlideEditor
-            slide={slide}
-            filters={filters}
-            multiSlide={presentationSettings.multiSlide}
-            onSlideChange={patchSlide}
-            onFiltersChange={onFiltersChange}
+        {section === 'story' ? (
+          <MainContentTab
+            storyTitle={storyTitle}
+            storyDescription={storyDescription}
+            presentationSettings={presentationSettings}
+            onStoryTitleChange={onStoryTitleChange}
+            onStoryDescriptionChange={onStoryDescriptionChange}
+            onPresentationSettingsChange={onPresentationSettingsChange}
           />
-        ) : (
-          <>
-            <MainContentTab
-              storyTitle={storyTitle}
-              presentationSettings={presentationSettings}
-              onStoryTitleChange={onStoryTitleChange}
-              onPresentationSettingsChange={onPresentationSettingsChange}
+        ) : null}
+        {section === 'slide' ? (
+          isEditingSlide ? (
+            <SlideEditor
+              part="content"
+              slide={slide}
+              filters={filters}
+              multiSlide={presentationSettings.multiSlide}
+              textDirection={presentationSettings.textDirection}
+              onTextDirectionChange={(textDirection) =>
+                onPresentationSettingsChange({ ...presentationSettings, textDirection })
+              }
+              onSlideChange={patchSlide}
+              onFiltersChange={onFiltersChange}
             />
+          ) : (
             <SlidesOverview
               chapters={chapters}
               slides={slides}
+              activeSlideIndex={activeSlideIndex}
               onEditSlide={(index) => {
                 onSelectSlide(index)
                 setMenuOpen(false)
@@ -240,8 +303,18 @@ export function StoryEditPanel({
               onAddSlide={onAddSlide}
               multiSlide={presentationSettings.multiSlide}
             />
-          </>
-        )}
+          )
+        ) : null}
+        {section === 'map' ? <MapSection /> : null}
+        {section === 'tools' ? (
+          <ToolsSection
+            canRemoveSlide={slides.length > 1}
+            onDuplicateSlide={() => onDuplicateSlide()}
+            onDeleteSlide={() => onDeleteSlide(slide.id)}
+            onShare={() => void shareSlides()}
+            onDeleteSlides={onDeleteSlides}
+          />
+        ) : null}
       </div>
       {menuOpen
         ? createPortal(
@@ -257,59 +330,411 @@ export function StoryEditPanel({
                 } as CSSProperties
               }
             >
-              {isEditingSlide ? (
-                <>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      onDuplicateSlide()
-                      setMenuOpen(false)
-                    }}
-                  >
-                    <Copy size={16} aria-hidden />
-                    Duplicate
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={styles.titleMenuDanger}
-                    disabled={slides.length === 1}
-                    onClick={() => {
-                      onDeleteSlide(slide.id)
-                      setMenuOpen(false)
-                      setIsEditingSlide(false)
-                    }}
-                  >
-                    <Trash size={16} aria-hidden />
-                    Delete
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button type="button" role="menuitem" onClick={() => void shareSlides()}>
-                    <ShareNetwork size={16} aria-hidden />
-                    Share slides
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={styles.titleMenuDanger}
-                    onClick={() => {
-                      setMenuOpen(false)
-                      if (window.confirm('Delete this slide deck?')) onDeleteSlides()
-                    }}
-                  >
-                    <Trash size={16} aria-hidden />
-                    Delete slides
-                  </button>
-                </>
-              )}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onDuplicateSlide()
+                  setMenuOpen(false)
+                }}
+              >
+                <Copy size={16} aria-hidden />
+                Duplicate
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.titleMenuDanger}
+                disabled={slides.length === 1}
+                onClick={() => {
+                  onDeleteSlide(slide.id)
+                  setMenuOpen(false)
+                  setIsEditingSlide(false)
+                }}
+              >
+                <Trash size={16} aria-hidden />
+                Delete
+              </button>
             </div>,
             document.body,
           )
         : null}
-    </aside>
+      </>
+      )}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+const ASSET_CAPTION = 'Real-Time Permit, EIA & Environmental Risk Intelligence'
+
+const MAP_LAYERS = [
+  {
+    id: 'layer-permit',
+    title: ASSET_CAPTION,
+    category: 'Traffic',
+    image: landingAssets.assetLayerPermit,
+  },
+  {
+    id: 'layer-terrain',
+    title: ASSET_CAPTION,
+    category: 'Weather',
+    image: landingAssets.assetLayerTerrain,
+  },
+  {
+    id: 'layer-pins',
+    title: ASSET_CAPTION,
+    category: 'Operations',
+    image: landingAssets.assetLayerPins,
+  },
+] as const
+
+const CHARTS = [
+  {
+    id: 'chart-aqi',
+    title: 'Air Quality Trend',
+    category: 'Trends',
+    image: landingAssets.storyThumbChartBase,
+    overlay: landingAssets.storyThumbChartBars,
+  },
+] as const
+
+const ASSET_TABS = [
+  {
+    id: 'layers',
+    label: 'Map Layers',
+    icon: MapPin,
+    all: 'All Map Layers',
+    categories: ['Traffic', 'Weather', 'Sales', 'Operations'],
+    placeholder: 'Search map layers..',
+  },
+  {
+    id: 'charts',
+    label: 'Charts',
+    icon: ChartLine,
+    all: 'All Charts',
+    categories: ['Trends', 'Comparison', 'Distribution'],
+    placeholder: 'Search charts..',
+  },
+  {
+    id: 'filters',
+    label: 'Filters',
+    icon: FunnelSimple,
+    all: 'All Filters',
+    categories: ['Location', 'Time', 'Demographics'],
+    placeholder: 'Search filters..',
+  },
+] as const
+
+type AssetTabId = (typeof ASSET_TABS)[number]['id']
+
+const FILTER_CATEGORY: Record<string, string> = {
+  loc: 'Location',
+  year: 'Time',
+  ssi: 'Demographics',
+  type: 'Demographics',
+  gender: 'Demographics',
+  level: 'Demographics',
+}
+
+const FILTER_CATALOG = [
+  { id: 'filter-airports', label: 'Airports', category: 'Location', icon: 'calendar' },
+  { id: 'filter-aqi-timeseries', label: 'AQI Timeseries', category: 'Time', icon: 'calendar' },
+  { id: 'filter-area', label: 'Area', category: 'Location', icon: 'pin' },
+  { id: 'filter-calendar-timeseries', label: 'CalendarTimeSeries', category: 'Time', icon: 'calendar' },
+  { id: 'filter-channel', label: 'Channel', category: 'Demographics', icon: 'grid' },
+  { id: 'filter-comparison', label: 'Comparison', category: 'Demographics', icon: 'grid' },
+  { id: 'filter-custom3-time', label: 'Custom3Time', category: 'Time', icon: 'calendar' },
+  { id: 'filter-date', label: 'Date', category: 'Time', icon: 'calendar' },
+  { id: 'filter-day', label: 'Day', category: 'Time', icon: 'calendar' },
+] as const
+
+function FilterGlyph({ icon }: { icon: (typeof FILTER_CATALOG)[number]['icon'] }) {
+  if (icon === 'pin') return <MapPin size={28} weight="regular" aria-hidden />
+  if (icon === 'grid') return <SquaresFour size={28} weight="regular" aria-hidden />
+  return <CalendarBlank size={28} weight="regular" aria-hidden />
+}
+
+function AssetsPicker({
+  filters,
+  expanded,
+  onExpandedChange,
+  onFiltersChange,
+  onClose,
+}: {
+  filters: StoryFilter[]
+  expanded: boolean
+  onExpandedChange: (expanded: boolean) => void
+  onFiltersChange: (filters: StoryFilter[]) => void
+  onClose: () => void
+}) {
+  const [tab, setTab] = useState<AssetTabId>('layers')
+  const [category, setCategory] = useState('All Map Layers')
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState<string[]>([])
+  const activeTab = ASSET_TABS.find((item) => item.id === tab) ?? ASSET_TABS[0]
+  const normalizedQuery = query.trim().toLowerCase()
+
+  const layerItems = MAP_LAYERS.filter(
+    (item) =>
+      (category === 'All Map Layers' || item.category === category) &&
+      item.title.toLowerCase().includes(normalizedQuery),
+  )
+  const chartItems = CHARTS.filter(
+    (item) =>
+      (category === 'All Charts' || item.category === category) &&
+      item.title.toLowerCase().includes(normalizedQuery),
+  )
+  const filterItems = filters.filter((item) => {
+    const itemCategory = FILTER_CATEGORY[item.id] ?? 'Location'
+    return (
+      (category === 'All Filters' || itemCategory === category) &&
+      item.label.toLowerCase().includes(normalizedQuery)
+    )
+  })
+  const catalogFilterItems = FILTER_CATALOG.filter(
+    (item) =>
+      !filters.some((filter) => filter.label === item.label) &&
+      (category === 'All Filters' || item.category === category) &&
+      item.label.toLowerCase().includes(normalizedQuery),
+  )
+  const visibleItems = tab === 'layers' ? layerItems : tab === 'charts' ? chartItems : filterItems
+
+  const selectedItems = selected.flatMap((id) => {
+    const layer = MAP_LAYERS.find((item) => item.id === id)
+    if (layer) return [{ id, title: layer.category }]
+    const chart = CHARTS.find((item) => item.id === id)
+    if (chart) return [{ id, title: chart.title }]
+    const filter = filters.find((item) => item.id === id)
+    if (filter) return [{ id, title: filter.label }]
+    const catalog = FILTER_CATALOG.find((item) => item.id === id)
+    return catalog ? [{ id, title: catalog.label }] : []
+  })
+
+  const toggleSelected = (id: string) => {
+    setSelected((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    )
+  }
+
+  const chooseTab = (next: AssetTabId) => {
+    const nextTab = ASSET_TABS.find((item) => item.id === next) ?? ASSET_TABS[0]
+    setTab(next)
+    setCategory(nextTab.all)
+    setQuery('')
+  }
+
+  return (
+    <>
+      <header className={styles.assetsHeader}>
+        <h2 id="story-edit-modal-title" className={styles.assetsTitle}>
+          Add Assets
+        </h2>
+        <div className={styles.assetsTabs} role="tablist" aria-label="Asset types">
+          {ASSET_TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              className={`${styles.assetsTab}${tab === id ? ` ${styles.assetsTabActive}` : ''}`}
+              aria-selected={tab === id}
+              onClick={() => chooseTab(id)}
+            >
+              <Icon size={20} weight="regular" aria-hidden />
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className={styles.assetsHeaderEnd}>
+          <label className={styles.assetsSearch}>
+            <MagnifyingGlass size={20} aria-hidden />
+            <input
+              value={query}
+              placeholder={activeTab.placeholder}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className={styles.assetsExpand}
+            aria-label={expanded ? 'Restore assets modal' : 'Expand assets modal'}
+            aria-pressed={expanded}
+            onClick={() => onExpandedChange(!expanded)}
+          >
+            <ArrowsOut size={20} aria-hidden />
+          </button>
+        </div>
+      </header>
+      <div className={styles.assetsBody}>
+        <nav className={styles.assetsNav} aria-label="Asset categories">
+          {[activeTab.all, ...activeTab.categories].map((name) => (
+            <button
+              key={name}
+              type="button"
+              className={`${styles.assetsNavBtn}${category === name ? ` ${styles.assetsNavBtnActive}` : ''}`}
+              aria-pressed={category === name}
+              onClick={() => setCategory(name)}
+            >
+              {name}
+            </button>
+          ))}
+        </nav>
+        <div className={styles.assetsStage}>
+          <div className={styles.assetsGrid}>
+            {tab === 'filters' ? (
+              filterItems.length + catalogFilterItems.length === 0 ? (
+              <p className={styles.assetsEmpty}>No assets match.</p>
+            ) : (
+              <>
+              {filterItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`${styles.assetCard} ${styles.assetCardPlain}${
+                      selected.includes(item.id) ? ` ${styles.assetCardSelected}` : ''
+                    }`}
+                    aria-pressed={selected.includes(item.id)}
+                    onClick={() => toggleSelected(item.id)}
+                  >
+                    <span className={styles.assetCardTitle}>{item.label}</span>
+                  </button>
+                ))}
+              {catalogFilterItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`${styles.assetFilter}${
+                    selected.includes(item.id) ? ` ${styles.assetFilterSelected}` : ''
+                  }`}
+                  aria-pressed={selected.includes(item.id)}
+                  onClick={() => toggleSelected(item.id)}
+                >
+                  <span className={styles.assetFilterIcon}>
+                    <FilterGlyph icon={item.icon} />
+                  </span>
+                  <span className={styles.assetFilterLabel}>{item.label}</span>
+                </button>
+              ))}
+              </>
+            )
+            ) : visibleItems.length === 0 ? (
+              <p className={styles.assetsEmpty}>No assets match.</p>
+            ) : (
+              (tab === 'layers' ? layerItems : chartItems).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`${styles.assetCard}${
+                    selected.includes(item.id) ? ` ${styles.assetCardSelected}` : ''
+                  }`}
+                  aria-pressed={selected.includes(item.id)}
+                  onClick={() => toggleSelected(item.id)}
+                >
+                  <span className={styles.assetCardImage}>
+                    <img src={item.image} alt="" />
+                    {'overlay' in item && item.overlay ? <img src={item.overlay} alt="" /> : null}
+                  </span>
+                  <span className={styles.assetCardTitle}>{item.title}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+        <aside className={styles.assetsSelected} aria-label="Selected assets">
+          <p className={styles.assetsSelectedTitle}>Selected</p>
+          {selectedItems.length === 0 ? (
+            <p className={styles.assetsSelectedEmpty}>No asset selected</p>
+          ) : (
+            <div className={styles.assetsSelectedList}>
+              {selectedItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={styles.assetsSelectedItem}
+                  onClick={() => toggleSelected(item.id)}
+                >
+                  {item.title}
+                </button>
+              ))}
+            </div>
+          )}
+        </aside>
+      </div>
+      <footer className={styles.assetsFooter}>
+        <p className={styles.assetsHint}>You can add components by drag and drop, or select multiple.</p>
+        <button
+          type="button"
+          className={styles.assetsNext}
+          onClick={() => {
+            const selectedFilters = filters.filter((item) => selected.includes(item.id))
+            const catalogAdditions = FILTER_CATALOG.filter(
+              (item) =>
+                selected.includes(item.id) && !filters.some((filter) => filter.label === item.label),
+            ).map((item) => ({ id: item.id, label: item.label, removable: true }))
+            if (selectedFilters.length > 0) {
+              onFiltersChange([...selectedFilters, ...catalogAdditions])
+            } else if (catalogAdditions.length > 0) {
+              onFiltersChange([...filters, ...catalogAdditions])
+            }
+            onClose()
+          }}
+        >
+          Next
+        </button>
+      </footer>
+    </>
+  )
+}
+
+function ToolsSection({
+  canRemoveSlide,
+  onDuplicateSlide,
+  onDeleteSlide,
+  onShare,
+  onDeleteSlides,
+}: {
+  canRemoveSlide: boolean
+  onDuplicateSlide: () => void
+  onDeleteSlide: () => void
+  onShare: () => void
+  onDeleteSlides: () => void
+}) {
+  return (
+    <section className={styles.section}>
+      <div className={styles.sectionHeading}>
+        <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Story tools</h3>
+      </div>
+      <div className={styles.toolList}>
+        <button type="button" className={styles.secondaryBtn} onClick={onDuplicateSlide}>
+          <Copy size={16} aria-hidden />
+          Duplicate slide
+        </button>
+        <button type="button" className={styles.secondaryBtn} onClick={onShare}>
+          <ShareNetwork size={16} aria-hidden />
+          Share slides
+        </button>
+        <button
+          type="button"
+          className={styles.dangerBtn}
+          disabled={!canRemoveSlide}
+          onClick={onDeleteSlide}
+        >
+          <Trash size={16} aria-hidden />
+          Remove slide
+        </button>
+        <button
+          type="button"
+          className={styles.dangerBtn}
+          onClick={() => {
+            if (window.confirm('Delete this slide deck?')) onDeleteSlides()
+          }}
+        >
+          <Trash size={16} aria-hidden />
+          Delete slides
+        </button>
+      </div>
+    </section>
   )
 }
 
@@ -320,13 +745,17 @@ const LOGO_OPTIONS = [
 
 function MainContentTab({
   storyTitle,
+  storyDescription,
   presentationSettings,
   onStoryTitleChange,
+  onStoryDescriptionChange,
   onPresentationSettingsChange,
 }: {
   storyTitle: string
+  storyDescription: string
   presentationSettings: StoryPresentationSettings
   onStoryTitleChange: (value: string) => void
+  onStoryDescriptionChange: (value: string) => void
   onPresentationSettingsChange: (settings: StoryPresentationSettings) => void
 }) {
   const [logoMode, setLogoMode] = useState<'dark' | 'light'>('dark')
@@ -382,9 +811,6 @@ function MainContentTab({
 
   return (
     <section className={styles.section}>
-      <div className={styles.sectionHeading}>
-        <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Story Configuration</h3>
-      </div>
       <label className={styles.field}>
         <span className={styles.label}>Story title</span>
         <input
@@ -393,6 +819,18 @@ function MainContentTab({
           value={storyTitle}
           onChange={(event) => onStoryTitleChange(event.target.value)}
         />
+        <span className={styles.charCount}>{storyTitle.length}/100</span>
+      </label>
+      <label className={styles.field}>
+        <span className={styles.label}>Description</span>
+        <textarea
+          className={styles.textarea}
+          rows={3}
+          maxLength={300}
+          value={storyDescription}
+          onChange={(event) => onStoryDescriptionChange(event.target.value)}
+        />
+        <span className={styles.charCount}>{storyDescription.length}/300</span>
       </label>
       <div className={styles.field}>
         <span className={styles.label}>Logo</span>
@@ -468,35 +906,12 @@ function MainContentTab({
           />
           {logoName || 'Select'}
         </label>
-        </div>
-      </div>
-      <div className={styles.settingGroup}>
-        <span className={styles.label}>Text Direction</span>
-        <div className={styles.segmentedControl} aria-label="Text direction">
-          <button
-            type="button"
-            className={`${styles.segmentedBtn}${
-              presentationSettings.textDirection === 'ltr'
-                ? ` ${styles.segmentedBtnActive}`
-                : ''
-            }`}
-            aria-pressed={presentationSettings.textDirection === 'ltr'}
-            onClick={() => patchSettings('textDirection', 'ltr')}
-          >
-            Left to Right
-          </button>
-          <button
-            type="button"
-            className={`${styles.segmentedBtn}${
-              presentationSettings.textDirection === 'rtl'
-                ? ` ${styles.segmentedBtnActive}`
-                : ''
-            }`}
-            aria-pressed={presentationSettings.textDirection === 'rtl'}
-            onClick={() => patchSettings('textDirection', 'rtl')}
-          >
-            Right to Left
-          </button>
+        {logoMode === 'light' ? (
+          <p className={styles.settingHelp}>
+            This logo will be used in light mode if provided. Otherwise, the dark mode logo will be
+            used instead.
+          </p>
+        ) : null}
         </div>
       </div>
       <SettingToggle
@@ -521,6 +936,38 @@ function MainContentTab({
         </p>
       </div>
     </section>
+  )
+}
+
+function TextDirectionField({
+  value,
+  onChange,
+}: {
+  value: 'ltr' | 'rtl'
+  onChange: (value: 'ltr' | 'rtl') => void
+}) {
+  return (
+    <div className={styles.inlineSetting}>
+      <span className={styles.label}>Text Direction</span>
+      <div className={`${styles.segmentedControl} ${styles.segmentedControlCompact}`} aria-label="Text direction">
+        <button
+          type="button"
+          className={`${styles.segmentedBtn}${value === 'ltr' ? ` ${styles.segmentedBtnActive}` : ''}`}
+          aria-pressed={value === 'ltr'}
+          onClick={() => onChange('ltr')}
+        >
+          Left to Right
+        </button>
+        <button
+          type="button"
+          className={`${styles.segmentedBtn}${value === 'rtl' ? ` ${styles.segmentedBtnActive}` : ''}`}
+          aria-pressed={value === 'rtl'}
+          onClick={() => onChange('rtl')}
+        >
+          Right to Left
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -553,6 +1000,7 @@ function SettingToggle({
 function SlidesOverview({
   chapters,
   slides,
+  activeSlideIndex,
   onEditSlide,
   onDuplicateSlide,
   onDeleteSlide,
@@ -564,6 +1012,7 @@ function SlidesOverview({
 }: {
   chapters: StoryChapter[]
   slides: StorySlide[]
+  activeSlideIndex: number
   onEditSlide: (index: number) => void
   onDuplicateSlide: (slideId?: string) => void
   onDeleteSlide: (slideId: string) => void
@@ -709,11 +1158,17 @@ function SlidesOverview({
                     SLIDE_THUMB_VARIANTS[index % SLIDE_THUMB_VARIANTS.length],
                   )
                   return (
-                    <div key={item.id} className={styles.slideItem}>
+                    <div
+                      key={item.id}
+                      className={`${styles.slideItem}${
+                        index === activeSlideIndex ? ` ${styles.slideItemActive}` : ''
+                      }`}
+                    >
                       <button
                         type="button"
                         className={styles.slideItemSelect}
                         onClick={() => onEditSlide(index)}
+                        aria-current={index === activeSlideIndex ? 'true' : undefined}
                         aria-label={`Edit slide ${chapterIndex + 1}: ${item.title}`}
                       >
                         <span className={styles.slideThumbnail} aria-hidden>
@@ -824,24 +1279,53 @@ function SlidesOverview({
   )
 }
 
+function MapSection() {
+  const mapThumb = storyThumbLayers('map')
+
+  return (
+    <section className={styles.section}>
+      <div className={styles.mapCard}>
+        <span className={styles.mapThumb} aria-hidden>
+          <img src={mapThumb.image} alt="" />
+          {mapThumb.overlay ? <img src={mapThumb.overlay} alt="" /> : null}
+        </span>
+        <span className={styles.mapCopy}>
+          <span className={styles.mapName}>Map</span>
+          <span className={styles.mapStyleName}>Custom style</span>
+        </span>
+        <button type="button" className={styles.mapChange}>
+          Change
+        </button>
+      </div>
+    </section>
+  )
+}
+
 function SlideEditor({
+  part,
   slide,
   filters,
   multiSlide,
+  textDirection,
+  onTextDirectionChange,
   onSlideChange,
   onFiltersChange,
 }: {
+  part: 'content' | 'assets'
   slide: StorySlide
   filters: StoryFilter[]
   multiSlide: boolean
+  textDirection?: 'ltr' | 'rtl'
+  onTextDirectionChange?: (value: 'ltr' | 'rtl') => void
   onSlideChange: <K extends keyof StorySlide>(key: K, value: StorySlide[K]) => void
   onFiltersChange: (filters: StoryFilter[]) => void
 }) {
   const [editingFilterId, setEditingFilterId] = useState<string | null>(null)
-  const mapThumb = storyThumbLayers('map')
 
   return (
     <>
+      {part === 'content' ? (
+      <>
       <section className={styles.section}>
         <div className={styles.sectionHeading}>
           <div>
@@ -875,9 +1359,9 @@ function SlideEditor({
             <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Layout</h3>
           </div>
         </div>
-        <div className={styles.settingGroup}>
+        <div className={styles.inlineSetting}>
           <span className={styles.label}>Slide Layout</span>
-          <div className={styles.segmentedControl} aria-label="Slide layout">
+          <div className={`${styles.segmentedControl} ${styles.segmentedControlCompact}`} aria-label="Slide layout">
             <button
               type="button"
               className={`${styles.segmentedBtn}${
@@ -901,9 +1385,9 @@ function SlideEditor({
           </div>
         </div>
         {slide.layout === 'sidebar' ? (
-          <div className={styles.settingGroup}>
+          <div className={styles.inlineSetting}>
             <span className={styles.label}>Sidebar Width</span>
-            <div className={styles.segmentedControl} aria-label="Sidebar width">
+            <div className={`${styles.segmentedControl} ${styles.segmentedControlCompact}`} aria-label="Sidebar width">
               <button
                 type="button"
                 className={`${styles.segmentedBtn}${
@@ -927,13 +1411,20 @@ function SlideEditor({
             </div>
           </div>
         ) : null}
+        {textDirection && onTextDirectionChange ? (
+          <TextDirectionField value={textDirection} onChange={onTextDirectionChange} />
+        ) : null}
         <SettingToggle
           label="Focus Layout"
           checked={slide.focusLayout}
           onChange={(checked) => onSlideChange('focusLayout', checked)}
         />
       </section>
+      </>
+      ) : null}
 
+      {part === 'assets' ? (
+      <>
       <section className={styles.section}>
         <div className={styles.sectionHeading}>
           <div>
@@ -1016,27 +1507,8 @@ function SlideEditor({
           ))}
         </div>
       </section>
-
-      <section className={styles.section}>
-        <div className={styles.sectionHeading}>
-          <div>
-            <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Map</h3>
-          </div>
-        </div>
-        <div className={styles.mapCard}>
-          <span className={styles.mapThumb} aria-hidden>
-            <img src={mapThumb.image} alt="" />
-            {mapThumb.overlay ? <img src={mapThumb.overlay} alt="" /> : null}
-          </span>
-          <span className={styles.mapCopy}>
-            <span className={styles.mapName}>Map</span>
-            <span className={styles.mapStyleName}>Custom style</span>
-          </span>
-          <button type="button" className={styles.mapChange}>
-            Change
-          </button>
-        </div>
-      </section>
+      </>
+      ) : null}
 
     </>
   )

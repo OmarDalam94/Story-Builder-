@@ -26,6 +26,9 @@ export const landingAssets = {
   storyThumbMapMarkers: `${b}/story-thumb-map-markers.png`,
   storyThumbChartBase: `${b}/story-thumb-chart-base.png`,
   storyThumbChartBars: `${b}/story-thumb-chart-bars.png`,
+  assetLayerPermit: `${b}/asset-layer-permit.png`,
+  assetLayerTerrain: `${b}/asset-layer-terrain.png`,
+  assetLayerPins: `${b}/asset-layer-pins.png`,
 } as const
 
 /** Thumbnail variants from the Figma Stories grid — keep story copy separate. */
