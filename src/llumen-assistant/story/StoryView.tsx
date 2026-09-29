@@ -11,8 +11,12 @@ import {
   Buildings,
   CalendarBlank,
   CaretDown,
+  Copy,
+  DotsThree,
+  Export,
   Eye,
   EyeSlash,
+  GearSix,
   GenderIntersex,
   GridFour,
   Info,
@@ -26,9 +30,11 @@ import {
   Slideshow,
   Student,
   SquaresFour,
+  Trash,
   Wrench,
 } from '@phosphor-icons/react'
 import { llumenAssets } from '../assets'
+import { ShareModal } from '../ShareModal'
 import {
   StoryEditPanel,
   type StoryEditSection,
@@ -115,9 +121,14 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const [editMenuOpen, setEditMenuOpen] = useState(false)
   const [editSection, setEditSection] = useState<StoryEditSection | null>(null)
   const [storyMode, setStoryMode] = useState<'edit' | 'view'>('edit')
-  const [setupMenuOpen, setSetupMenuOpen] = useState(false)
-  const [setupMenuPos, setSetupMenuPos] = useState({ top: 0, left: 0 })
-  const setupSlotRef = useRef<HTMLDivElement>(null)
+  const [shareOpen, setShareOpen] = useState(false)
+  const [storyMenuOpen, setStoryMenuOpen] = useState(false)
+  const [storyMenuPos, setStoryMenuPos] = useState({ top: 0, left: 0 })
+  const storyMenuRef = useRef<HTMLButtonElement>(null)
+  const [slideMenuOpen, setSlideMenuOpen] = useState(false)
+  const [slideMenuPos, setSlideMenuPos] = useState({ top: 0, left: 0 })
+  const slideMenuRef = useRef<HTMLButtonElement>(null)
+  const [directSlideEditor, setDirectSlideEditor] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [layers, setLayers] = useState<StoryMapLayerVisibility>({
     junctions: true,
@@ -152,15 +163,20 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const canPrev = activeSlideIndex > 0
   const canNext = activeSlideIndex < slides.length - 1
 
+  const toggleSection = (section: StoryEditSection) => {
+    setDirectSlideEditor(false)
+    setEditSection((current) => (current === section ? null : section))
+  }
+
   useEffect(() => {
-    if (!setupMenuOpen) return
+    if (!storyMenuOpen) return
     const onPointerDown = (event: PointerEvent) => {
-      const menu = document.getElementById('story-setup-menu')
-      if (setupSlotRef.current?.contains(event.target as Node) || menu?.contains(event.target as Node)) return
-      setSetupMenuOpen(false)
+      const menu = document.getElementById('story-title-menu')
+      if (storyMenuRef.current?.contains(event.target as Node) || menu?.contains(event.target as Node)) return
+      setStoryMenuOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSetupMenuOpen(false)
+      if (event.key === 'Escape') setStoryMenuOpen(false)
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -168,11 +184,99 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [setupMenuOpen])
+  }, [storyMenuOpen])
 
-  const chooseSetup = (section: StoryEditSection) => {
-    setEditSection(section)
-    setSetupMenuOpen(false)
+  const toggleStoryMenu = () => {
+    const rect = storyMenuRef.current?.getBoundingClientRect()
+    if (!rect) return
+    if (storyMenuOpen) {
+      setStoryMenuOpen(false)
+      return
+    }
+    const width = 200
+    setStoryMenuPos({
+      top: rect.bottom + 6,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+    })
+    setSlideMenuOpen(false)
+    setStoryMenuOpen(true)
+  }
+
+  useEffect(() => {
+    if (!slideMenuOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      const menu = document.getElementById('slide-title-menu')
+      if (slideMenuRef.current?.contains(event.target as Node) || menu?.contains(event.target as Node)) return
+      setSlideMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSlideMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [slideMenuOpen])
+
+  const toggleSlideMenu = () => {
+    const rect = slideMenuRef.current?.getBoundingClientRect()
+    if (!rect) return
+    if (slideMenuOpen) {
+      setSlideMenuOpen(false)
+      return
+    }
+    const width = 200
+    setSlideMenuPos({
+      top: rect.bottom + 6,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+    })
+    setStoryMenuOpen(false)
+    setSlideMenuOpen(true)
+  }
+
+  const duplicateActiveSlide = () => {
+    const id = `${story.id}-slide-${Date.now()}`
+    const nextSlide = {
+      ...copySlide(slide),
+      id,
+      chapterId: slide.chapterId,
+      title: `${slide.title} copy`,
+    }
+    const sourceFilters = filtersBySlide[slide.id] ?? filters
+    setSlides((items) => [...items, nextSlide])
+    setFiltersBySlide((current) => ({
+      ...current,
+      [id]: sourceFilters.map((filter) => ({ ...filter })),
+    }))
+    setSlideIndex(slides.length)
+    setSlideMenuOpen(false)
+  }
+
+  const deleteActiveSlide = () => {
+    if (slides.length === 1) return
+    const deletedIndex = activeSlideIndex
+    setSlides((items) => items.filter((item) => item.id !== slide.id))
+    setFiltersBySlide((current) => {
+      const next = { ...current }
+      delete next[slide.id]
+      return next
+    })
+    setSlideIndex((currentIndex) => {
+      if (currentIndex > deletedIndex) return currentIndex - 1
+      return Math.min(currentIndex, slides.length - 2)
+    })
+    setSlideMenuOpen(false)
+    setDirectSlideEditor(false)
+    setEditSection(null)
+  }
+
+  const deleteStory = () => {
+    setStoryMenuOpen(false)
+    setEditMenuOpen(false)
+    setEditSection(null)
+    onBack()
   }
 
   useEffect(() => {
@@ -200,21 +304,52 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               <ArrowLeft size={20} weight="regular" aria-hidden />
             </button>
             <div className={styles.titleGroup}>
-              <h1 className={styles.storyTitle}>{storyTitle}</h1>
+              <div className={styles.storyTitleRow}>
+                <h1 className={styles.storyTitle}>{storyTitle}</h1>
+                {storyMode === 'edit' ? (
+                  <button
+                    ref={storyMenuRef}
+                    type="button"
+                    className={`${styles.storyMenuBtn}${storyMenuOpen ? ` ${styles.storyMenuBtnOpen}` : ''}`}
+                    aria-label="Story actions"
+                    aria-haspopup="menu"
+                    aria-expanded={storyMenuOpen}
+                    aria-controls="story-title-menu"
+                    onClick={toggleStoryMenu}
+                  >
+                    <DotsThree size={16} weight="bold" aria-hidden />
+                  </button>
+                ) : null}
+              </div>
               <div className={styles.slideTitleRow}>
                 <h2 className={styles.slideTitle}>{slide.title}</h2>
-                <button
-                  type="button"
-                  className={styles.infoBtn}
-                  aria-label="Show slide description"
-                  aria-expanded={infoOpen}
-                  aria-describedby={infoOpen ? 'slide-description' : undefined}
-                  onClick={() => setInfoOpen((open) => !open)}
-                >
-                  <Info size={18} weight="regular" aria-hidden />
-                </button>
+                {storyMode === 'edit' ? (
+                  <button
+                    ref={slideMenuRef}
+                    type="button"
+                    className={`${styles.slideMenuBtn}${slideMenuOpen ? ` ${styles.slideMenuBtnOpen}` : ''}`}
+                    aria-label="Slide actions"
+                    aria-haspopup="menu"
+                    aria-expanded={slideMenuOpen}
+                    aria-controls="slide-title-menu"
+                    onClick={toggleSlideMenu}
+                  >
+                    <DotsThree size={16} weight="bold" aria-hidden />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.infoBtn}
+                    aria-label="Show slide description"
+                    aria-expanded={infoOpen}
+                    aria-describedby={infoOpen ? 'slide-description' : undefined}
+                    onClick={() => setInfoOpen((open) => !open)}
+                  >
+                    <Info size={18} weight="regular" aria-hidden />
+                  </button>
+                )}
               </div>
-              {infoOpen ? (
+              {storyMode === 'view' && infoOpen ? (
                 <div id="slide-description" className={styles.infoPopover} role="tooltip">
                   {slide.finding || 'No description added.'}
                 </div>
@@ -248,7 +383,10 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                       className={`${styles.editTool}${editSection === id ? ` ${styles.editToolActive}` : ''}`}
                       aria-selected={editSection === id}
                       aria-controls="story-edit-modal"
-                      onClick={() => setEditSection((current) => (current === id ? null : id))}
+                      onClick={() => {
+                        setDirectSlideEditor(false)
+                        setEditSection((current) => (current === id ? null : id))
+                      }}
                     >
                       <Icon size={16} weight="regular" aria-hidden />
                       {label}
@@ -266,6 +404,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 onClick={() => {
                   if (editMenuOpen) {
                     setEditMenuOpen(false)
+                    setDirectSlideEditor(false)
                     setEditSection(null)
                     return
                   }
@@ -526,7 +665,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               setEditSection(null)
               onBack()
             }}
-            onClose={() => setEditSection(null)}
+            directSlideEditor={directSlideEditor}
+            onClose={() => {
+              setDirectSlideEditor(false)
+              setEditSection(null)
+            }}
             mapStyleId={mapStyle.id}
             onMapStyleChange={setMapStyle}
           />
@@ -708,32 +851,27 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                   <button
                     type="button"
                     className={`${styles.modeAction}${editSection === 'assets' ? ` ${styles.modeActionActive}` : ''}`}
-                    onClick={() => setEditSection((current) => (current === 'assets' ? null : 'assets'))}
+                    onClick={() => toggleSection('assets')}
                   >
                     <Plus size={18} weight="bold" aria-hidden />
-                    Add
+                    Assets
                   </button>
-                  <div className={styles.setupSlot} ref={setupSlotRef}>
-                    <button
-                      type="button"
-                      className={`${styles.modeAction}${
-                        setupMenuOpen || editSection === 'story' || editSection === 'slide' || editSection === 'map'
-                          ? ` ${styles.modeActionActive}`
-                          : ''
-                      }`}
-                      aria-haspopup="menu"
-                      aria-expanded={setupMenuOpen}
-                      aria-controls="story-setup-menu"
-                      onClick={() => {
-                        const rect = setupSlotRef.current?.getBoundingClientRect()
-                        if (rect) setSetupMenuPos({ top: rect.top, left: rect.left })
-                        setSetupMenuOpen((open) => !open)
-                      }}
-                    >
-                      <SquaresFour size={18} weight="regular" aria-hidden />
-                      Setup
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    className={`${styles.modeAction}${editSection === 'tools' ? ` ${styles.modeActionActive}` : ''}`}
+                    onClick={() => toggleSection('tools')}
+                  >
+                    <Plus size={18} weight="bold" aria-hidden />
+                    Tools
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.modeAction}${editSection === 'map' ? ` ${styles.modeActionActive}` : ''}`}
+                    onClick={() => toggleSection('map')}
+                  >
+                    <MapTrifold size={18} weight="regular" aria-hidden />
+                    Config background
+                  </button>
                   <span className={styles.modeDivider} aria-hidden />
                 </div>
               </div>
@@ -743,7 +881,10 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               className={`${styles.modeBtn}${storyMode === 'edit' ? ` ${styles.modeBtnActive}` : ''}`}
               aria-label="Edit mode"
               aria-pressed={storyMode === 'edit'}
-              onClick={() => setStoryMode('edit')}
+              onClick={() => {
+                setStoryMode('edit')
+                setInfoOpen(false)
+              }}
             >
               <PencilSimple size={20} weight="regular" aria-hidden />
             </button>
@@ -755,8 +896,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               onClick={() => {
                 setStoryMode('view')
                 setEditMenuOpen(false)
+                setDirectSlideEditor(false)
                 setEditSection(null)
-                setSetupMenuOpen(false)
+                setStoryMenuOpen(false)
+                setSlideMenuOpen(false)
+                setInfoOpen(false)
               }}
             >
               <Eye size={20} weight="regular" aria-hidden />
@@ -764,37 +908,90 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           </div>
         </div>
       </div>
-    {setupMenuOpen
+    {slideMenuOpen
       ? createPortal(
           <div
-            id="story-setup-menu"
-            className={styles.setupMenu}
+            id="slide-title-menu"
+            className={styles.storyMenu}
             role="menu"
-            aria-label="Setup"
-            style={{ top: setupMenuPos.top, left: setupMenuPos.left }}
+            aria-label="Slide actions"
+            style={{ top: slideMenuPos.top, left: slideMenuPos.left }}
           >
-            {(
-              [
-                { id: 'story', label: 'Story Configuration', icon: BookOpen },
-                { id: 'slide', label: 'Slide configuration', icon: Slideshow },
-                { id: 'map', label: 'Basemap', icon: MapTrifold },
-              ] as const
-            ).map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                role="menuitem"
-                className={editSection === id ? styles.setupMenuActive : undefined}
-                onClick={() => chooseSetup(id)}
-              >
-                <Icon size={16} weight="regular" aria-hidden />
-                {label}
-              </button>
-            ))}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setDirectSlideEditor(true)
+                setEditSection('slide')
+                setSlideMenuOpen(false)
+              }}
+            >
+              <GearSix size={16} weight="regular" aria-hidden />
+              Configure
+            </button>
+            <button type="button" role="menuitem" onClick={duplicateActiveSlide}>
+              <Copy size={16} weight="regular" aria-hidden />
+              Duplicate slide
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.storyMenuDanger}
+              disabled={slides.length === 1}
+              onClick={deleteActiveSlide}
+            >
+              <Trash size={16} weight="regular" aria-hidden />
+              Delete slide
+            </button>
           </div>,
           document.body,
         )
       : null}
+    {storyMenuOpen
+      ? createPortal(
+          <div
+            id="story-title-menu"
+            className={styles.storyMenu}
+            role="menu"
+            aria-label="Story actions"
+            style={{ top: storyMenuPos.top, left: storyMenuPos.left }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setDirectSlideEditor(false)
+                setEditSection('story')
+                setStoryMenuOpen(false)
+              }}
+            >
+              <GearSix size={16} weight="regular" aria-hidden />
+              Configure
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setStoryMenuOpen(false)
+                setShareOpen(true)
+              }}
+            >
+              <Export size={16} weight="regular" aria-hidden />
+              Share story
+            </button>
+            <button type="button" role="menuitem" className={styles.storyMenuDanger} onClick={deleteStory}>
+              <Trash size={16} weight="regular" aria-hidden />
+              Delete story
+            </button>
+          </div>,
+          document.body,
+        )
+      : null}
+      <ShareModal
+        open={shareOpen}
+        title={`Share “${storyTitle}”`}
+        onClose={() => setShareOpen(false)}
+      />
     </div>
   )
 }

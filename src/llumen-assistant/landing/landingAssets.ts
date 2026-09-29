@@ -29,6 +29,12 @@ export const landingAssets = {
   assetLayerPermit: `${b}/asset-layer-permit.png`,
   assetLayerTerrain: `${b}/asset-layer-terrain.png`,
   assetLayerPins: `${b}/asset-layer-pins.png`,
+  mapStyleAimsunTeal: `${b}/map-style-aimsun-teal.jpg`,
+  mapStyleAimsunBase: `${b}/map-style-aimsun-base.png`,
+  mapStyleAimsunDefault: `${b}/map-style-aimsun-default.png`,
+  mapStyleAimsunLight: `${b}/map-style-aimsun-light.jpg`,
+  mapStyleDubaiDarkBlue: `${b}/map-style-dubai-dark-blue.png`,
+  mapStyleItc: `${b}/map-style-itc.jpg`,
 } as const
 
 /** Thumbnail variants from the Figma Stories grid — keep story copy separate. */

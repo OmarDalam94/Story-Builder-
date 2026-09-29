@@ -63,6 +63,8 @@ export type StoryEditPanelProps = {
   onDeleteSlide: (slideId: string) => void
   onDeleteSlides: () => void
   onClose: () => void
+  /** Opens the slide editor directly, with no return to the slides list. */
+  directSlideEditor?: boolean
   mapStyleId: string
   onMapStyleChange: (style: { id: string; url: string }) => void
   section: StoryEditSection
@@ -98,19 +100,20 @@ export function StoryEditPanel({
   onDuplicateSlide,
   onDeleteSlide,
   onClose,
+  directSlideEditor = false,
   mapStyleId,
   onMapStyleChange,
   section,
 }: StoryEditPanelProps) {
-  const [isEditingSlide, setIsEditingSlide] = useState(false)
+  const [isEditingSlide, setIsEditingSlide] = useState(directSlideEditor)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    setIsEditingSlide(false)
+    setIsEditingSlide(directSlideEditor && section === 'slide')
     setMenuOpen(false)
-  }, [section])
+  }, [section, directSlideEditor])
 
   const slide = slides[activeSlideIndex]
   const slideChapter = chapters.find((chapter) => chapter.id === slide?.chapterId)
@@ -147,7 +150,7 @@ export function StoryEditPanel({
         setMenuOpen(false)
         return
       }
-      if (isEditingSlide) {
+      if (isEditingSlide && !directSlideEditor) {
         setIsEditingSlide(false)
         return
       }
@@ -155,7 +158,7 @@ export function StoryEditPanel({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isEditingSlide, menuOpen, onClose])
+  }, [directSlideEditor, isEditingSlide, menuOpen, onClose])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -205,7 +208,7 @@ export function StoryEditPanel({
       <>
       <header className={styles.header}>
         <div className={styles.headerIdentity}>
-          {section === 'slide' && isEditingSlide && (
+          {section === 'slide' && isEditingSlide && !directSlideEditor && (
             <button
               type="button"
               className={styles.backBtn}
@@ -643,11 +646,13 @@ function AssetsPicker({
                   aria-pressed={selected.includes(item.id)}
                   onClick={() => toggleSelected(item.id)}
                 >
-                  <span className={styles.assetCardImage}>
-                    <img src={item.image} alt="" />
-                    {'overlay' in item && item.overlay ? <img src={item.overlay} alt="" /> : null}
+                  <span className={styles.assetCardClip}>
+                    <span className={styles.assetCardImage}>
+                      <img src={item.image} alt="" />
+                      {'overlay' in item && item.overlay ? <img src={item.overlay} alt="" /> : null}
+                    </span>
+                    <span className={styles.assetCardTitle}>{item.title}</span>
                   </span>
-                  <span className={styles.assetCardTitle}>{item.title}</span>
                 </button>
               ))
             )}
@@ -1341,42 +1346,44 @@ function SlidesOverview({
 
 const MAP_STYLE_OPTIONS = [
   {
+    id: 'aimsun-teal',
+    name: 'Aimsun Teal',
+    description: 'Aimsun teal map style',
+    url: STORY_MAP_STYLE,
+    image: landingAssets.mapStyleAimsunTeal,
+  },
+  {
     id: 'aimsun-base',
     name: 'Aimsun Base',
     description: 'Aimsun base map style',
     url: 'mapbox://styles/mapbox/dark-v11',
-    image: landingAssets.storyThumbMapBase,
+    image: landingAssets.mapStyleAimsunBase,
   },
   {
     id: 'aimsun-default',
     name: 'Aimsun Default',
     description: 'Aimsun default dark map style',
     url: 'mapbox://styles/mapbox/navigation-night-v1',
-    image: landingAssets.assetLayerPins,
+    image: landingAssets.mapStyleAimsunDefault,
   },
   {
     id: 'aimsun-light',
     name: 'Aimsun Light',
     description: 'Aimsun light map style',
     url: 'mapbox://styles/mapbox/light-v11',
-    image: landingAssets.storyThumbChartBase,
-  },
-  {
-    id: 'aimsun-teal',
-    name: 'Aimsun Teal',
-    description: 'Aimsun teal map style',
-    url: STORY_MAP_STYLE,
-    image: landingAssets.assetLayerPermit,
+    image: landingAssets.mapStyleAimsunLight,
   },
   {
     id: 'dubai-dark-blue',
     name: 'Dubai Dark Blue',
     description: 'Style URL missing',
+    image: landingAssets.mapStyleDubaiDarkBlue,
   },
   {
     id: 'itc',
     name: 'ITC',
     description: 'Style URL missing',
+    image: landingAssets.mapStyleItc,
   },
 ] as const
 
@@ -1445,22 +1452,24 @@ function MapStylePicker({
             <button
               key={style.id}
               type="button"
-              className={`${styles.mapStyleCard}${
-                selectedId === style.id ? ` ${styles.mapStyleCardSelected}` : ''
+              className={`${styles.assetCard} ${styles.mapStyleCard}${
+                selectedId === style.id ? ` ${styles.assetCardSelected}` : ''
               }`}
               aria-pressed={selectedId === style.id}
               onClick={() => setSelectedId(style.id)}
             >
-              <span className={styles.mapStylePreview}>
-                {style.image ? (
-                  <img src={style.image} alt="" />
-                ) : (
-                  <Question size={42} weight="regular" aria-hidden />
-                )}
-              </span>
-              <span className={styles.mapStyleCopy}>
-                <span className={styles.mapStyleCardName}>{style.name}</span>
-                <span className={styles.mapStyleCardDesc}>{style.description}</span>
+              <span className={styles.assetCardClip}>
+                <span className={styles.assetCardImage}>
+                  {style.image ? (
+                    <img src={style.image} alt="" />
+                  ) : (
+                    <Question className={styles.mapStyleEmpty} size={42} weight="regular" aria-hidden />
+                  )}
+                </span>
+                <span className={styles.assetCardTitle}>
+                  <span className={styles.mapStyleCardName}>{style.name}</span>
+                  <span className={styles.mapStyleCardDesc}>{style.description}</span>
+                </span>
               </span>
             </button>
           ))}
