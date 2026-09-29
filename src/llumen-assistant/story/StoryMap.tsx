@@ -1,233 +1,213 @@
 /**
- * Real Mapbox map for Story view — style + demo layers adapted from
- * llumen-map-legend MapView (utilization heatmap, vehicles, AQI blooms).
+ * Real Mapbox map for Story view with the demo Abu Dhabi overlay:
+ * value-distribution columns and monitored-junction disks, varied per slide scene.
  */
 import { useEffect, useRef, useState } from 'react'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { MapControls, type InteractiveMapHandle } from '../InteractiveMap'
+import { DEMO_COLUMNS, DEMO_JUNCTIONS } from './storyDemoMapData'
+import {
+  mixSceneState,
+  rgbString,
+  sceneState,
+  storySceneAt,
+  type StorySceneState,
+} from './storyDemoScenes'
 import styles from './StoryMap.module.css'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? ''
 const MAPBOX_STYLE = 'mapbox://styles/pixonal/cmgnqbyjf005g01sh9s510hi2'
 export const STORY_MAP_STYLE = MAPBOX_STYLE
-const CENTER: [number, number] = [54.345474, 24.476976]
-const ZOOM = 11.669772
-const PITCH = 72
-const BEARING = 0
-
-const iconBase = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/llumen-assets/map-icons`
-
-function mulberry32(seed: number) {
-  let a = seed
-  return () => {
-    a |= 0
-    a = (a + 0x6d2b79f5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-function jitter(rand: () => number, scale = 0.09): [number, number] {
-  return [CENTER[0] + (rand() - 0.5) * scale, CENTER[1] + (rand() - 0.5) * scale]
-}
-
-function point(coords: [number, number], props: Record<string, string | number>) {
-  return {
-    type: 'Feature' as const,
-    properties: props,
-    geometry: { type: 'Point' as const, coordinates: coords },
-  }
-}
-
-function buildDemoLayers() {
-  const rand = mulberry32(2025)
-  const vehicles = {
-    type: 'FeatureCollection' as const,
-    features: Array.from({ length: 42 }, (_, i) =>
-      point(jitter(rand, 0.12), { status: i % 3 === 0 ? 'idling' : 'active' }),
-    ),
-  }
-  const heat = {
-    type: 'FeatureCollection' as const,
-    features: Array.from({ length: 180 }, () => {
-      const coords = jitter(rand, 0.16)
-      return point(coords, { mag: 2 + rand() * 8 })
-    }),
-  }
-  const aqi = {
-    type: 'FeatureCollection' as const,
-    features: Array.from({ length: 18 }, () =>
-      point(jitter(rand, 0.14), { aqi: 40 + rand() * 220 }),
-    ),
-  }
-  return { vehicles, heat, aqi }
-}
-
-function loadIcon(map: mapboxgl.Map, name: string, url: string): Promise<void> {
-  return new Promise((resolve) => {
-    const image = new Image(36, 36)
-    image.crossOrigin = 'anonymous'
-    image.onload = () => {
-      if (!map.hasImage(name)) map.addImage(name, image, { pixelRatio: 2 })
-      resolve()
-    }
-    image.onerror = () => resolve()
-    image.src = url
-  })
-}
+/** Keeps the demo overlay clear of the 380px insight column. */
+const CAMERA_PADDING = { top: 0, right: 0, bottom: 0, left: 400 }
+const CAMERA_DURATION_MS = 2600
+const SCENE_TWEEN_MS = 1800
 
 export type StoryMapLayerVisibility = {
-  utilization: boolean
-  vehiclesActive: boolean
-  vehiclesIdling: boolean
+  junctions: boolean
+  distribution: boolean
 }
 
 export type StoryMapProps = {
   className?: string
   layers?: StoryMapLayerVisibility
+  /** Index of the demo scene (camera, columns, disks) to show. */
+  sceneIndex?: number
   styleUrl?: string
 }
 
 const DEFAULT_LAYERS: StoryMapLayerVisibility = {
-  utilization: true,
-  vehiclesActive: true,
-  vehiclesIdling: true,
+  junctions: true,
+  distribution: true,
 }
 
-async function mountStoryLayers(map: mapboxgl.Map, layers: StoryMapLayerVisibility) {
+const JUNCTION_LAYERS = ['story-junctions-halo', 'story-junctions']
+const COLUMN_LAYERS = ['story-columns']
+const COLUMN_RADIUS_M = 36
+
+function ring(lng: number, lat: number, radiusMeters: number, sides: number) {
+  const dLat = radiusMeters / 111320
+  const dLng = radiusMeters / (111320 * Math.cos((lat * Math.PI) / 180))
+  const coords: [number, number][] = []
+  for (let i = 0; i <= sides; i += 1) {
+    const t = (i / sides) * Math.PI * 2
+    coords.push([lng + Math.cos(t) * dLng, lat + Math.sin(t) * dLat])
+  }
+  return { type: 'Polygon' as const, coordinates: [coords] }
+}
+
+type DemoFeature = {
+  type: 'Feature'
+  properties: Record<string, number | string>
+  geometry: ReturnType<typeof ring> | { type: 'Point'; coordinates: [number, number] }
+}
+
+/** Web-mercator meters per pixel at zoom 0 for 512px tiles, at the demo latitude. */
+const METERS_PER_PX_Z0 = (40075016.686 / 512) * Math.cos((24.47 * Math.PI) / 180)
+
+/** Circle radius expression that keeps each disk at `radius × scale` meters on the ground. */
+function metersToPixels(scale: number): mapboxgl.ExpressionSpecification {
+  const base = ['/', ['*', ['get', 'radius'], scale], METERS_PER_PX_Z0]
+  return ['interpolate', ['exponential', 2], ['zoom'], 0, base, 22, ['*', base, 2 ** 22]]
+}
+
+const COLUMN_GEOMETRY = DEMO_COLUMNS.map(([lng, lat]) => ring(lng, lat, COLUMN_RADIUS_M, 14))
+
+function columnData(state: StorySceneState) {
+  const features: DemoFeature[] = COLUMN_GEOMETRY.map((geometry, index) => ({
+    type: 'Feature',
+    properties: { height: state.heights[index], color: rgbString(state.columnColors[index]) },
+    geometry,
+  }))
+  return { type: 'FeatureCollection' as const, features }
+}
+
+function junctionData(state: StorySceneState) {
+  const features: DemoFeature[] = DEMO_JUNCTIONS.map(([lng, lat], index) => ({
+    type: 'Feature',
+    properties: { radius: state.radii[index] },
+    geometry: { type: 'Point', coordinates: [lng, lat] },
+  }))
+  return { type: 'FeatureCollection' as const, features }
+}
+
+function applySceneState(map: mapboxgl.Map, state: StorySceneState) {
+  const columns = map.getSource('story-columns') as mapboxgl.GeoJSONSource | undefined
+  const junctions = map.getSource('story-junctions') as mapboxgl.GeoJSONSource | undefined
+  columns?.setData(columnData(state))
+  junctions?.setData(junctionData(state))
+  if (map.getLayer('story-junctions')) {
+    map.setPaintProperty('story-junctions', 'circle-color', rgbString(state.diskCore))
+    map.setPaintProperty('story-junctions-halo', 'circle-color', rgbString(state.diskHalo))
+  }
+}
+
+function mountStoryLayers(map: mapboxgl.Map, state: StorySceneState) {
   map.resize()
-  await Promise.all([
-    loadIcon(map, 'diamond-active', `${iconBase}/diamond-map-idling.svg`),
-    loadIcon(map, 'diamond-idling', `${iconBase}/diamond-map-active.svg`),
-  ])
-  if (map.getSource('story-heat')) return
+  if (map.getSource('story-columns')) return
 
-  const data = buildDemoLayers()
-  map.addSource('story-heat', { type: 'geojson', data: data.heat })
-  map.addSource('story-vehicles', { type: 'geojson', data: data.vehicles })
-  map.addSource('story-aqi', { type: 'geojson', data: data.aqi })
+  map.addSource('story-columns', { type: 'geojson', data: columnData(state) })
+  map.addSource('story-junctions', { type: 'geojson', data: junctionData(state) })
 
   map.addLayer({
-    id: 'story-utilization',
-    type: 'heatmap',
-    source: 'story-heat',
-    paint: {
-      'heatmap-weight': ['/', ['get', 'mag'], 10],
-      'heatmap-intensity': 0.9,
-      'heatmap-radius': 42,
-      'heatmap-opacity': 0.72,
-      'heatmap-color': [
-        'interpolate',
-        ['linear'],
-        ['heatmap-density'],
-        0,
-        'rgba(61,61,223,0)',
-        0.2,
-        '#3d3ddf',
-        0.65,
-        '#8b5cf0',
-        1,
-        '#e0744c',
-      ],
-    },
-  })
-
-  map.addLayer({
-    id: 'story-aqi',
+    id: 'story-junctions-halo',
     type: 'circle',
-    source: 'story-aqi',
+    source: 'story-junctions',
     paint: {
-      'circle-radius': 22,
-      'circle-blur': 0.4,
-      'circle-color': [
-        'interpolate',
-        ['linear'],
-        ['get', 'aqi'],
-        0,
-        '#8bc17c',
-        50,
-        '#e0c27a',
-        100,
-        '#e39b4c',
-        150,
-        '#e43963',
-        200,
-        '#bd2695',
-        300,
-        '#b21b1b',
-      ],
-      'circle-opacity': 0.35,
+      'circle-radius': metersToPixels(1.7),
+      'circle-color': rgbString(state.diskHalo),
+      'circle-opacity': 0.22,
+      'circle-blur': 1,
+      'circle-pitch-alignment': 'map',
+      'circle-pitch-scale': 'map',
+      'circle-color-transition': { duration: 0 },
     },
   })
 
   map.addLayer({
-    id: 'story-vehicles-active',
-    type: 'symbol',
-    source: 'story-vehicles',
-    filter: ['==', ['get', 'status'], 'active'],
-    layout: {
-      'icon-image': 'diamond-active',
-      'icon-size': 0.9,
-      'icon-allow-overlap': true,
+    id: 'story-junctions',
+    type: 'circle',
+    source: 'story-junctions',
+    paint: {
+      'circle-radius': metersToPixels(1),
+      'circle-color': rgbString(state.diskCore),
+      'circle-opacity': 0.36,
+      'circle-blur': 0.55,
+      'circle-pitch-alignment': 'map',
+      'circle-pitch-scale': 'map',
+      'circle-color-transition': { duration: 0 },
     },
   })
 
   map.addLayer({
-    id: 'story-vehicles-idling',
-    type: 'symbol',
-    source: 'story-vehicles',
-    filter: ['==', ['get', 'status'], 'idling'],
-    layout: {
-      'icon-image': 'diamond-idling',
-      'icon-size': 0.9,
-      'icon-allow-overlap': true,
+    id: 'story-columns',
+    type: 'fill-extrusion',
+    source: 'story-columns',
+    paint: {
+      'fill-extrusion-color': ['to-color', ['get', 'color']],
+      'fill-extrusion-height': ['get', 'height'],
+      'fill-extrusion-base': 0,
+      'fill-extrusion-opacity': 1,
+      'fill-extrusion-vertical-gradient': true,
     },
   })
-
-  map.setLayoutProperty('story-utilization', 'visibility', layers.utilization ? 'visible' : 'none')
-  map.setLayoutProperty(
-    'story-vehicles-active',
-    'visibility',
-    layers.vehiclesActive ? 'visible' : 'none',
-  )
-  map.setLayoutProperty(
-    'story-vehicles-idling',
-    'visibility',
-    layers.vehiclesIdling ? 'visible' : 'none',
-  )
 }
 
-/** Full Mapbox story canvas with map-legend demo overlays. */
+function setLayerVisibility(map: mapboxgl.Map, id: string, visible: boolean) {
+  if (!map.getLayer(id)) return
+  map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none')
+}
+
+function syncDemoLayers(map: mapboxgl.Map, layers: StoryMapLayerVisibility) {
+  for (const id of JUNCTION_LAYERS) setLayerVisibility(map, id, layers.junctions)
+  for (const id of COLUMN_LAYERS) setLayerVisibility(map, id, layers.distribution)
+}
+
+function easeInOutCubic(t: number) {
+  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2
+}
+
+/** Full Mapbox story canvas. */
 export function StoryMap({
   className,
   layers = DEFAULT_LAYERS,
+  sceneIndex = 0,
   styleUrl = STORY_MAP_STYLE,
 }: StoryMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const handleRef = useRef<InteractiveMapHandle | null>(null)
   const [ready, setReady] = useState(false)
-  const layersRef = useRef(layers)
   const appliedStyleRef = useRef(styleUrl)
+  const layersRef = useRef(layers)
+  const sceneIndexRef = useRef(sceneIndex)
+  const appliedSceneRef = useRef(sceneIndex)
+  const displayedRef = useRef<StorySceneState>(sceneState(storySceneAt(sceneIndex)))
+  const tweenRef = useRef<number | null>(null)
 
   useEffect(() => {
     layersRef.current = layers
   }, [layers])
 
   useEffect(() => {
+    sceneIndexRef.current = sceneIndex
+  }, [sceneIndex])
+
+  useEffect(() => {
     const el = containerRef.current
     if (!el || mapRef.current) return
 
+    const { camera } = storySceneAt(sceneIndexRef.current)
     mapboxgl.accessToken = MAPBOX_TOKEN
     const map = new mapboxgl.Map({
       container: el,
       style: styleUrl,
-      center: CENTER,
-      zoom: ZOOM,
-      pitch: PITCH,
-      bearing: BEARING,
+      center: camera.center,
+      zoom: camera.zoom,
+      pitch: camera.pitch,
+      bearing: camera.bearing,
+      antialias: true,
       attributionControl: false,
       dragPan: true,
       scrollZoom: true,
@@ -235,6 +215,7 @@ export function StoryMap({
       doubleClickZoom: true,
       keyboard: true,
     })
+    map.setPadding(CAMERA_PADDING)
     map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right')
     mapRef.current = map
 
@@ -242,17 +223,23 @@ export function StoryMap({
     observer.observe(el)
 
     map.on('load', () => {
-      void mountStoryLayers(map, layersRef.current).then(() => setReady(true))
+      mountStoryLayers(map, displayedRef.current)
+      syncDemoLayers(map, layersRef.current)
+      setReady(true)
     })
 
     handleRef.current = {
       zoomIn: () => map.zoomIn({ duration: 280 }),
       zoomOut: () => map.zoomOut({ duration: 280 }),
-      resetNorth: () => map.easeTo({ bearing: BEARING, pitch: PITCH, duration: 420 }),
+      resetNorth: () => {
+        const { pitch, bearing } = storySceneAt(sceneIndexRef.current).camera
+        map.easeTo({ bearing, pitch, duration: 420 })
+      },
     }
 
     return () => {
       observer.disconnect()
+      if (tweenRef.current !== null) cancelAnimationFrame(tweenRef.current)
       map.remove()
       mapRef.current = null
       handleRef.current = null
@@ -263,18 +250,29 @@ export function StoryMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-    map.setLayoutProperty('story-utilization', 'visibility', layers.utilization ? 'visible' : 'none')
-    map.setLayoutProperty(
-      'story-vehicles-active',
-      'visibility',
-      layers.vehiclesActive ? 'visible' : 'none',
-    )
-    map.setLayoutProperty(
-      'story-vehicles-idling',
-      'visibility',
-      layers.vehiclesIdling ? 'visible' : 'none',
-    )
+    syncDemoLayers(map, layers)
   }, [layers, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || appliedSceneRef.current === sceneIndex) return
+    appliedSceneRef.current = sceneIndex
+
+    const scene = storySceneAt(sceneIndex)
+    map.flyTo({ ...scene.camera, duration: CAMERA_DURATION_MS, curve: 1.2, essential: true })
+
+    if (tweenRef.current !== null) cancelAnimationFrame(tweenRef.current)
+    const from = displayedRef.current
+    const to = sceneState(scene)
+    const start = performance.now()
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / SCENE_TWEEN_MS)
+      displayedRef.current = mixSceneState(from, to, easeInOutCubic(t))
+      applySceneState(map, displayedRef.current)
+      tweenRef.current = t < 1 ? requestAnimationFrame(step) : null
+    }
+    tweenRef.current = requestAnimationFrame(step)
+  }, [sceneIndex, ready])
 
   useEffect(() => {
     const map = mapRef.current
@@ -282,7 +280,9 @@ export function StoryMap({
     appliedStyleRef.current = styleUrl
     setReady(false)
     map.once('style.load', () => {
-      void mountStoryLayers(map, layersRef.current).then(() => setReady(true))
+      mountStoryLayers(map, displayedRef.current)
+      syncDemoLayers(map, layersRef.current)
+      setReady(true)
     })
     map.setStyle(styleUrl)
   }, [ready, styleUrl])
