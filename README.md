@@ -2,7 +2,7 @@
 
 Design prototype for the core **Llumen AI** experience: an executive landing surface plus a floating AI assistant that streams answers, maps, KPIs, slides, and data profiles in a dark, frosted UI shell.
 
-> **Live demo:** [islamozayed.github.io/llumen-ai-frontend](https://islamozayed.github.io/llumen-ai-frontend/)
+> **Live demo:** [omardalam94.github.io/Story-Builder-](https://omardalam94.github.io/Story-Builder-/)
 
 This repository is a **frontend-only demo**. Conversation flows, maps, and panels are driven by local demo data — there is no production backend wired up yet.
 
@@ -101,8 +101,8 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints (usually `http://localhost:5173/llumen-ai-frontend/`).  
-The Vite `base` is set to `/llumen-ai-frontend/` for GitHub Pages, so the app is served under that path locally as well.
+Open the URL Vite prints (usually `http://localhost:5173/Story-Builder-/`).  
+The Vite `base` is set to `/Story-Builder-/` for GitHub Pages, so the app is served under that path locally as well.
 
 ### Production build
 
@@ -127,12 +127,12 @@ npm run lint
 ### Vite base path
 GitHub project Pages hosts the site at:
 
-`https://islamozayed.github.io/llumen-ai-frontend/`
+`https://omardalam94.github.io/Story-Builder-/`
 
 `vite.config.ts` sets:
 
 ```ts
-base: '/llumen-ai-frontend/'
+base: '/Story-Builder-/'
 ```
 
 Asset helpers under `src/llumen-assistant` already use `import.meta.env.BASE_URL`, so public assets resolve correctly under that subpath.

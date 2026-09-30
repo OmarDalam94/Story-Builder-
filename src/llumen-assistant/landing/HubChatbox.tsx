@@ -21,6 +21,7 @@ import {
   insertSlashCommand,
   type SlashCommand,
   type SlashCommandId,
+  type SlashMenuPosition,
 } from '../slashCommands'
 import panelStyles from '../compact-assistant.module.css'
 import type { LandingContextChip } from './LandingChatbox'
@@ -170,7 +171,7 @@ type SlashMenuState = {
   query: string
   activeIndex: number
   triggerLength: number
-  position: { left: number; bottom: number }
+  position: SlashMenuPosition
 }
 
 export type HubChatboxProps = {

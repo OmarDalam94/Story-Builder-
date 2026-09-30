@@ -39,6 +39,7 @@ import {
   getSlashTrigger,
   insertSlashCommand,
   type SlashCommand,
+  type SlashMenuPosition,
 } from './slashCommands'
 import type { SendVisualState } from './SendButton'
 import { SendButton } from './SendButton'
@@ -89,7 +90,7 @@ type SlashMenuState = {
   query: string
   activeIndex: number
   triggerLength: number
-  position: MentionMenuPosition
+  position: SlashMenuPosition
 }
 
 function serializeComposer(root: HTMLElement): string {

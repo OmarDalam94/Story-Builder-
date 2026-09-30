@@ -4,8 +4,8 @@ import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
-  // Project Pages site: https://islamozayed.github.io/llumen-ai-frontend/
-  base: '/llumen-ai-frontend/',
+  // Project Pages site: https://omardalam94.github.io/Story-Builder-/
+  base: '/Story-Builder-/',
   plugins: [react(), tailwindcss()],
   // Vite 8 defaults cssMinify to lightningcss, which drops unprefixed
   // `backdrop-filter` when `-webkit-backdrop-filter` is also present.
