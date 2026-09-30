@@ -390,6 +390,47 @@
   white-space: nowrap;
 }
 
+.filterPillEditing {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.filterRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0 0 0 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.filterAddBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 40px;
+  background: rgba(34, 42, 42, 0.5);
+  color: #fff;
+  font-size: 14px;
+  line-height: normal;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.filterAddBtn:hover,
+.filterAddBtnActive {
+  background: rgba(132, 220, 255, 0.16);
+}
+
 .headerRule {
   height: 1px;
   width: 100%;
@@ -849,7 +890,7 @@
 .mapData {
   position: absolute;
   right: 20px;
-  bottom: 84px;
+  bottom: 18px;
   z-index: 5;
   pointer-events: auto;
   width: 300px;
@@ -888,6 +929,28 @@
   flex-direction: column;
   gap: 16px;
   padding: 14px 16px 16px;
+}
+
+.addMapLayerBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 40px;
+  background: rgba(34, 42, 42, 0.5);
+  color: #fff;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.addMapLayerBtn:hover,
+.addMapLayerBtnActive {
+  background: rgba(132, 220, 255, 0.16);
 }
 
 .legendGroup {

@@ -1260,25 +1260,6 @@
   color: var(--lc-text-tertiary);
 }
 
-.assetsClose {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--lc-border-default);
-  border-radius: var(--radius-full);
-  background: var(--lc-bg-default);
-  color: var(--lc-text-primary);
-  cursor: pointer;
-}
-
-.assetsClose:hover {
-  background: var(--lc-bg-default-hover);
-}
-
 .assetsBody {
   display: flex;
   flex: 1;
@@ -1387,6 +1368,25 @@
 
 .assetCardSelected {
   border-color: #70aeff;
+}
+
+.assetChartCard {
+  background: #16181d;
+}
+
+.assetChartCard .assetCardClip {
+  background: #16181d;
+}
+
+.assetChartPreview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 12px;
+  overflow: hidden;
 }
 
 .assetCardImage {
@@ -1547,6 +1547,13 @@
   font: var(--lc-font-small);
 }
 
+.assetsFooterActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .assetsNext {
   height: 36px;
   margin: 0;
@@ -1690,7 +1697,6 @@
   font: var(--lc-font-body);
 }
 
-.assetsClose:focus-visible,
 .toolsTab:focus-visible,
 .toolsRow:focus-visible,
 .toolsSearch:focus-within,

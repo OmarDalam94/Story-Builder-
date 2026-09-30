@@ -216,7 +216,6 @@ export function StoryMap({
       keyboard: true,
     })
     map.setPadding(CAMERA_PADDING)
-    map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right')
     mapRef.current = map
 
     const observer = new ResizeObserver(() => map.resize())

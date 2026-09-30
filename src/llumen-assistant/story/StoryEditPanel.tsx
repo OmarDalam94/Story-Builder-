@@ -33,13 +33,14 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { storyThumbLayers, landingAssets } from '../landing/landingAssets'
+import { STORY_CHARTS, StoryChartPreview } from './StoryCharts'
 import { STORY_MAP_STYLE } from './StoryMap'
 import type { StoryChapter, StoryFilter, StorySlide } from './storyDemoData'
 import styles from './StoryEditPanel.module.css'
 
 const SLIDE_THUMB_VARIANTS = ['map', 'chart', 'satellite'] as const
 
-export type StoryEditSection = 'story' | 'slide' | 'assets' | 'map' | 'tools'
+export type StoryEditSection = 'story' | 'slide' | 'assets' | 'map' | 'tools' | 'filters' | 'layers'
 
 export type StoryEditPanelProps = {
   storyTitle: string
@@ -125,8 +126,12 @@ export function StoryEditPanel({
       ? 'Story Configuration'
       : section === 'assets'
         ? 'Assets & Filters'
+        : section === 'filters'
+          ? 'Add Filters'
+        : section === 'layers'
+          ? 'Add Map Layer'
         : section === 'map'
-          ? 'Map Style Configuration'
+          ? 'Background Configuration'
           : section === 'tools'
           ? 'Tools'
           : isEditingSlide
@@ -189,7 +194,7 @@ export function StoryEditPanel({
       <div
         id="story-edit-modal"
         className={`${styles.panel} ${styles.modal}${
-          section === 'assets' ? ` ${styles.assetsModal}` : ''
+          section === 'assets' || section === 'filters' || section === 'layers' ? ` ${styles.assetsModal}` : ''
         }${section === 'map' ? ` ${styles.mapModal}` : ''}${
           section === 'tools' ? ` ${styles.toolsModal}` : ''
         }`}
@@ -198,11 +203,14 @@ export function StoryEditPanel({
         aria-labelledby="story-edit-modal-title"
         dir="ltr"
       >
-      {section === 'assets' ? (
+      {section === 'assets' || section === 'filters' || section === 'layers' ? (
         <AssetsPicker
           filters={filters}
           onFiltersChange={onFiltersChange}
           onClose={onClose}
+          chartsOnly={section === 'assets'}
+          filtersOnly={section === 'filters'}
+          layersOnly={section === 'layers'}
         />
       ) : (
       <>
@@ -393,15 +401,7 @@ const MAP_LAYERS = [
   },
 ] as const
 
-const CHARTS = [
-  {
-    id: 'chart-aqi',
-    title: 'Air Quality Trend',
-    category: 'Trends',
-    image: landingAssets.storyThumbChartBase,
-    overlay: landingAssets.storyThumbChartBars,
-  },
-] as const
+const CHARTS = STORY_CHARTS
 
 const ASSET_TABS = [
   {
@@ -477,13 +477,21 @@ function AssetsPicker({
   filters,
   onFiltersChange,
   onClose,
+  chartsOnly = false,
+  filtersOnly = false,
+  layersOnly = false,
 }: {
   filters: StoryFilter[]
   onFiltersChange: (filters: StoryFilter[]) => void
   onClose: () => void
+  chartsOnly?: boolean
+  filtersOnly?: boolean
+  layersOnly?: boolean
 }) {
-  const [tab, setTab] = useState<AssetTabId>('layers')
-  const [category, setCategory] = useState('All Map Layers')
+  const [tab, setTab] = useState<AssetTabId>(filtersOnly ? 'filters' : chartsOnly ? 'charts' : 'layers')
+  const [category, setCategory] = useState(
+    filtersOnly ? 'All Filters' : chartsOnly ? 'All Charts' : 'All Map Layers',
+  )
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string[]>([])
   const activeTab = ASSET_TABS.find((item) => item.id === tab) ?? ASSET_TABS[0]
@@ -542,8 +550,9 @@ function AssetsPicker({
     <>
       <header className={styles.assetsHeader}>
         <h2 id="story-edit-modal-title" className={styles.assetsTitle}>
-          Add Assets
+          Add {filtersOnly ? 'Filters' : layersOnly ? 'Map Layer' : 'Assets'}
         </h2>
+        {filtersOnly || layersOnly || chartsOnly ? null : (
         <div className={styles.assetsTabs} role="tablist" aria-label="Asset types">
           {ASSET_TABS.map(({ id, label, icon: Icon }) => (
             <button
@@ -559,6 +568,7 @@ function AssetsPicker({
             </button>
           ))}
         </div>
+        )}
         <div className={styles.assetsHeaderEnd}>
           <label className={styles.assetsSearch}>
             <MagnifyingGlass size={20} aria-hidden />
@@ -568,14 +578,6 @@ function AssetsPicker({
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
-          <button
-            type="button"
-            className={styles.assetsClose}
-            aria-label="Close Add Assets"
-            onClick={onClose}
-          >
-            <X size={18} weight="bold" aria-hidden />
-          </button>
         </div>
       </header>
       <div className={styles.assetsBody}>
@@ -640,18 +642,25 @@ function AssetsPicker({
                 <button
                   key={item.id}
                   type="button"
-                  className={`${styles.assetCard}${
+                  className={`${styles.assetCard}${tab === 'charts' ? ` ${styles.assetChartCard}` : ''}${
                     selected.includes(item.id) ? ` ${styles.assetCardSelected}` : ''
                   }`}
                   aria-pressed={selected.includes(item.id)}
                   onClick={() => toggleSelected(item.id)}
                 >
                   <span className={styles.assetCardClip}>
-                    <span className={styles.assetCardImage}>
-                      <img src={item.image} alt="" />
-                      {'overlay' in item && item.overlay ? <img src={item.overlay} alt="" /> : null}
-                    </span>
-                    <span className={styles.assetCardTitle}>{item.title}</span>
+                    {tab === 'charts' ? (
+                      <span className={styles.assetChartPreview}>
+                        <StoryChartPreview id={item.id} />
+                      </span>
+                    ) : (
+                      <>
+                        <span className={styles.assetCardImage}>
+                          <img src={'image' in item ? item.image : ''} alt="" />
+                        </span>
+                        <span className={styles.assetCardTitle}>{item.title}</span>
+                      </>
+                    )}
                   </span>
                 </button>
               ))
@@ -661,7 +670,15 @@ function AssetsPicker({
         <aside className={styles.assetsSelected} aria-label="Selected assets">
           <p className={styles.assetsSelectedTitle}>Selected</p>
           {selectedItems.length === 0 ? (
-            <p className={styles.assetsSelectedEmpty}>No asset selected</p>
+            <p className={styles.assetsSelectedEmpty}>
+              {filtersOnly
+                ? 'No filter selected'
+                : layersOnly
+                  ? 'No layer selected'
+                  : chartsOnly
+                    ? 'No chart selected'
+                    : 'No asset selected'}
+            </p>
           ) : (
             <div className={styles.assetsSelectedList}>
               {selectedItems.map((item) => (
@@ -680,25 +697,30 @@ function AssetsPicker({
       </div>
       <footer className={styles.assetsFooter}>
         <p className={styles.assetsHint}>You can add components by drag and drop, or select multiple.</p>
-        <button
-          type="button"
-          className={styles.assetsNext}
-          onClick={() => {
-            const selectedFilters = filters.filter((item) => selected.includes(item.id))
-            const catalogAdditions = FILTER_CATALOG.filter(
-              (item) =>
-                selected.includes(item.id) && !filters.some((filter) => filter.label === item.label),
-            ).map((item) => ({ id: item.id, label: item.label, removable: true }))
-            if (selectedFilters.length > 0) {
-              onFiltersChange([...selectedFilters, ...catalogAdditions])
-            } else if (catalogAdditions.length > 0) {
-              onFiltersChange([...filters, ...catalogAdditions])
-            }
-            onClose()
-          }}
-        >
-          Next
-        </button>
+        <div className={styles.assetsFooterActions}>
+          <button type="button" className={styles.secondaryBtn} onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={styles.assetsNext}
+            onClick={() => {
+              const selectedFilters = filters.filter((item) => selected.includes(item.id))
+              const catalogAdditions = FILTER_CATALOG.filter(
+                (item) =>
+                  selected.includes(item.id) && !filters.some((filter) => filter.label === item.label),
+              ).map((item) => ({ id: item.id, label: item.label, removable: true }))
+              if (selectedFilters.length > 0) {
+                onFiltersChange([...selectedFilters, ...catalogAdditions])
+              } else if (catalogAdditions.length > 0) {
+                onFiltersChange([...filters, ...catalogAdditions])
+              }
+              onClose()
+            }}
+          >
+            Add selected
+          </button>
+        </div>
       </footer>
     </>
   )

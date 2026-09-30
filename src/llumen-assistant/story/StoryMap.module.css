@@ -14,11 +14,6 @@
   height: 100%;
 }
 
-.canvas :global(.mapboxgl-ctrl-attrib) {
-  background: rgba(8, 11, 23, 0.45);
-  color: rgba(226, 232, 240, 0.75);
-}
-
 .controls {
   top: 160px;
   right: 20px;
