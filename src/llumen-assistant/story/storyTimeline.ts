@@ -52,9 +52,7 @@ export const DEFAULT_SLIDE_TIMELINE: SlideTimeline = {
   frame: 0,
 }
 
-export const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
-export const MIN_PLAYBACK_SPEED = 0.25
-export const MAX_PLAYBACK_SPEED = 2
+export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2]
 
 const MIN_FRAMES = 4
 const MAX_FRAMES = 400

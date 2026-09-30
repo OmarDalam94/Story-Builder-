@@ -7,7 +7,6 @@ import { createPortal } from 'react-dom'
 import {
   ArrowLeft,
   ArrowRight,
-  BookOpen,
   Buildings,
   CalendarBlank,
   CaretDown,
@@ -18,8 +17,8 @@ import {
   EyeSlash,
   GearSix,
   GenderIntersex,
-  GridFour,
   Info,
+  List,
   MapPin,
   MapTrifold,
   PaintBucket,
@@ -27,11 +26,9 @@ import {
   PencilSimple,
   Play,
   Plus,
-  Slideshow,
   Student,
   SquaresFour,
   Trash,
-  Wrench,
   X,
 } from '@phosphor-icons/react'
 import { llumenAssets } from '../assets'
@@ -141,7 +138,6 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     makeFilterMap(story.slides, story.filters),
   )
   const [legendOpen, setLegendOpen] = useState(true)
-  const [editMenuOpen, setEditMenuOpen] = useState(false)
   const [editSection, setEditSection] = useState<StoryEditSection | null>(null)
   const [storyMode, setStoryMode] = useState<'edit' | 'view'>('view')
   const [shareOpen, setShareOpen] = useState(false)
@@ -195,6 +191,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     chapters,
     slides,
   }
+  const slidesConfigOpen = editSection === 'slide' && !directSlideEditor
   const canPrev = activeSlideIndex > 0
   const canNext = activeSlideIndex < slides.length - 1
 
@@ -336,7 +333,6 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
 
   const deleteStory = () => {
     setStoryMenuOpen(false)
-    setEditMenuOpen(false)
     setEditSection(null)
     onBack()
   }
@@ -420,66 +416,6 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 </div>
               ) : null}
             </div>
-            {storyMode === 'edit' ? (
-            <div className={styles.editCluster} dir="ltr">
-              <div
-                id="story-edit-tools"
-                className={`${styles.editTools}${editMenuOpen ? ` ${styles.editToolsOpen}` : ''}`}
-                role="tablist"
-                aria-label="Edit story"
-                aria-hidden={!editMenuOpen}
-                inert={!editMenuOpen}
-              >
-                <div className={styles.editToolsClip}>
-                  <div className={styles.editToolsInner}>
-                  {(
-                    [
-                      { id: 'story', label: 'Story Config', icon: BookOpen },
-                      { id: 'slide', label: 'Slides Config', icon: Slideshow },
-                      { id: 'assets', label: 'Assets & Filters', icon: GridFour },
-                      { id: 'map', label: 'Map', icon: MapTrifold },
-                      { id: 'tools', label: 'Tools', icon: Wrench },
-                    ] as const
-                  ).map(({ id, label, icon: Icon }) => (
-                    <button
-                      key={id}
-                      type="button"
-                      role="tab"
-                      className={`${styles.editTool}${editSection === id ? ` ${styles.editToolActive}` : ''}`}
-                      aria-selected={editSection === id}
-                      aria-controls="story-edit-modal"
-                      onClick={() => {
-                        setDirectSlideEditor(false)
-                        setEditSection((current) => (current === id ? null : id))
-                      }}
-                    >
-                      <Icon size={16} weight="regular" aria-hidden />
-                      {label}
-                    </button>
-                  ))}
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                className={`${styles.editBtn}${editMenuOpen ? ` ${styles.editBtnActive}` : ''}`}
-                aria-label="Edit"
-                aria-expanded={editMenuOpen}
-                aria-controls="story-edit-tools"
-                onClick={() => {
-                  if (editMenuOpen) {
-                    setEditMenuOpen(false)
-                    setDirectSlideEditor(false)
-                    setEditSection(null)
-                    return
-                  }
-                  setEditMenuOpen(true)
-                }}
-              >
-                <PencilSimple size={16} weight="regular" aria-hidden />
-              </button>
-            </div>
-            ) : null}
           </div>
           <div className={styles.filters}>
             {filters.map((f) => (
@@ -683,7 +619,6 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               })
             }}
             onDeleteSlides={() => {
-              setEditMenuOpen(false)
               setEditSection(null)
               onBack()
             }}
@@ -876,9 +811,20 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               >
                 <ArrowLeft size={20} weight="regular" aria-hidden />
               </button>
-              <span className={styles.navCount}>
+              <button
+                type="button"
+                className={`${styles.navCount}${slidesConfigOpen ? ` ${styles.navCountActive}` : ''}`}
+                aria-label={`Slide ${activeSlideIndex + 1} of ${slides.length}, open slides configuration`}
+                aria-haspopup="dialog"
+                aria-expanded={slidesConfigOpen}
+                onClick={() => {
+                  setDirectSlideEditor(false)
+                  setEditSection(slidesConfigOpen ? null : 'slide')
+                }}
+              >
+                <List size={16} weight="regular" aria-hidden />
                 {activeSlideIndex + 1}/{slides.length}
-              </span>
+              </button>
               <button
                 type="button"
                 className={styles.navArrow}
@@ -946,7 +892,6 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               aria-pressed={storyMode === 'view'}
               onClick={() => {
                 setStoryMode('view')
-                setEditMenuOpen(false)
                 setDirectSlideEditor(false)
                 setEditSection(null)
                 setStoryMenuOpen(false)

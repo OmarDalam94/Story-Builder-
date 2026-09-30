@@ -4,10 +4,8 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { CaretLeft, CaretRight, Check, FunnelSimple, Minus, Pause, Play, Plus } from '@phosphor-icons/react'
+import { CaretLeft, CaretRight, Check, FunnelSimple, Pause, Play } from '@phosphor-icons/react'
 import {
-  MAX_PLAYBACK_SPEED,
-  MIN_PLAYBACK_SPEED,
   PLAYBACK_SPEEDS,
   TIMELINE_GRANULARITIES,
   TIMELINE_RANGES,
@@ -23,7 +21,6 @@ import styles from './StoryTimeSeries.module.css'
 
 const THUMB_WIDTH = 31
 const DOT_SIZE = 4
-const SPEED_STEP = 0.05
 const DRAG_PREVIEW_PX = 3
 
 type Menu = 'speed' | 'dates' | 'granularity'
@@ -42,11 +39,6 @@ export type StoryTimeSeriesProps = {
   onSpeedChange: (speed: number) => void
   onGranularityChange: (granularityId: string) => void
   onRangeChange: (rangeId: string) => void
-}
-
-function clampSpeed(speed: number) {
-  const snapped = Math.round(speed / SPEED_STEP) * SPEED_STEP
-  return Math.max(MIN_PLAYBACK_SPEED, Math.min(MAX_PLAYBACK_SPEED, Math.round(snapped * 100) / 100))
 }
 
 export function StoryTimeSeries({
@@ -363,42 +355,6 @@ export function StoryTimeSeries({
               ) : menu === 'speed' ? (
                 <>
                   <p className={styles.menuTitle}>Playback speed</p>
-                  <p className={styles.speedValue}>{speed.toFixed(2)}x</p>
-                  <div className={styles.speedSliderRow}>
-                    <button
-                      type="button"
-                      className={styles.stepBtn}
-                      aria-label="Slower"
-                      disabled={speed <= MIN_PLAYBACK_SPEED}
-                      onClick={() => onSpeedChange(clampSpeed(speed - SPEED_STEP))}
-                    >
-                      <Minus size={14} weight="bold" aria-hidden />
-                    </button>
-                    <input
-                      className={styles.speedSlider}
-                      type="range"
-                      min={MIN_PLAYBACK_SPEED}
-                      max={MAX_PLAYBACK_SPEED}
-                      step={SPEED_STEP}
-                      value={speed}
-                      aria-label="Playback speed"
-                      style={
-                        {
-                          '--fill': (speed - MIN_PLAYBACK_SPEED) / (MAX_PLAYBACK_SPEED - MIN_PLAYBACK_SPEED),
-                        } as CSSProperties
-                      }
-                      onChange={(event) => onSpeedChange(clampSpeed(Number(event.target.value)))}
-                    />
-                    <button
-                      type="button"
-                      className={styles.stepBtn}
-                      aria-label="Faster"
-                      disabled={speed >= MAX_PLAYBACK_SPEED}
-                      onClick={() => onSpeedChange(clampSpeed(speed + SPEED_STEP))}
-                    >
-                      <Plus size={14} weight="bold" aria-hidden />
-                    </button>
-                  </div>
                   <div className={styles.speedChips}>
                     {PLAYBACK_SPEEDS.map((option) => (
                       <button
@@ -408,7 +364,7 @@ export function StoryTimeSeries({
                         aria-pressed={option === speed}
                         onClick={() => onSpeedChange(option)}
                       >
-                        {option === 1 ? 'Normal' : option}
+                        {Number.isInteger(option) ? option.toFixed(1) : option}
                       </button>
                     ))}
                   </div>
