@@ -1160,8 +1160,10 @@
 }
 
 .panel.modal.assetsModal {
-  width: min(1400px, calc(100vw - 64px));
-  height: min(800px, calc(100vh - 64px));
+  width: min(1750px, calc(100vw - 64px), calc((100vh - 64px) * 1.75));
+  height: auto;
+  aspect-ratio: 1400 / 800;
+  max-height: calc(100vh - 64px);
 }
 
 .assetsHeader {
