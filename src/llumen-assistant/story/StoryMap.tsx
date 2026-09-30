@@ -10,6 +10,7 @@ import { DEMO_COLUMNS, DEMO_JUNCTIONS } from './storyDemoMapData'
 import {
   mixSceneState,
   rgbString,
+  sceneAtPhase,
   sceneState,
   storySceneAt,
   type StorySceneState,
@@ -34,6 +35,11 @@ export type StoryMapProps = {
   layers?: StoryMapLayerVisibility
   /** Index of the demo scene (camera, columns, disks) to show. */
   sceneIndex?: number
+  /** Position (0…1) within the slide's time-series loop. */
+  framePhase?: number
+  /** Tween length for frame changes; linear keeps continuous playback smooth. */
+  frameDuration?: number
+  frameLinear?: boolean
   styleUrl?: string
 }
 
@@ -173,6 +179,9 @@ export function StoryMap({
   className,
   layers = DEFAULT_LAYERS,
   sceneIndex = 0,
+  framePhase = 0,
+  frameDuration = 500,
+  frameLinear = false,
   styleUrl = STORY_MAP_STYLE,
 }: StoryMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -183,7 +192,10 @@ export function StoryMap({
   const layersRef = useRef(layers)
   const sceneIndexRef = useRef(sceneIndex)
   const appliedSceneRef = useRef(sceneIndex)
-  const displayedRef = useRef<StorySceneState>(sceneState(storySceneAt(sceneIndex)))
+  const appliedPhaseRef = useRef(framePhase)
+  const displayedRef = useRef<StorySceneState>(
+    sceneState(sceneAtPhase(storySceneAt(sceneIndex), framePhase)),
+  )
   const tweenRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -254,24 +266,31 @@ export function StoryMap({
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !ready || appliedSceneRef.current === sceneIndex) return
+    if (!map || !ready) return
+    const sceneChanged = appliedSceneRef.current !== sceneIndex
+    if (!sceneChanged && appliedPhaseRef.current === framePhase) return
     appliedSceneRef.current = sceneIndex
+    appliedPhaseRef.current = framePhase
 
     const scene = storySceneAt(sceneIndex)
-    map.flyTo({ ...scene.camera, duration: CAMERA_DURATION_MS, curve: 1.2, essential: true })
+    if (sceneChanged) {
+      map.flyTo({ ...scene.camera, duration: CAMERA_DURATION_MS, curve: 1.2, essential: true })
+    }
 
     if (tweenRef.current !== null) cancelAnimationFrame(tweenRef.current)
     const from = displayedRef.current
-    const to = sceneState(scene)
+    const to = sceneState(sceneAtPhase(scene, framePhase))
+    const duration = sceneChanged ? SCENE_TWEEN_MS : Math.max(1, frameDuration)
+    const ease = !sceneChanged && frameLinear ? (t: number) => t : easeInOutCubic
     const start = performance.now()
     const step = (now: number) => {
-      const t = Math.min(1, (now - start) / SCENE_TWEEN_MS)
-      displayedRef.current = mixSceneState(from, to, easeInOutCubic(t))
+      const t = Math.min(1, (now - start) / duration)
+      displayedRef.current = mixSceneState(from, to, ease(t))
       applySceneState(map, displayedRef.current)
       tweenRef.current = t < 1 ? requestAnimationFrame(step) : null
     }
     tweenRef.current = requestAnimationFrame(step)
-  }, [sceneIndex, ready])
+  }, [sceneIndex, framePhase, frameDuration, frameLinear, ready])
 
   useEffect(() => {
     const map = mapRef.current

@@ -60,7 +60,18 @@ import {
   type StorySlide,
 } from './storyDemoData'
 import { StoryMap, STORY_MAP_STYLE, type StoryMapLayerVisibility } from './StoryMap'
-import { storySceneAt, type ColumnGlyphColors } from './storyDemoScenes'
+import { sceneAtPhase, storySceneAt, type ColumnGlyphColors } from './storyDemoScenes'
+import { StoryTimeSeries } from './StoryTimeSeries'
+import {
+  DEFAULT_SLIDE_TIMELINE,
+  timelineFrameCount,
+  timelineGranularityById,
+  timelineRangeById,
+  timelineStepMs,
+  withGranularity,
+  withRange,
+  type SlideTimeline,
+} from './storyTimeline'
 import styles from './StoryView.module.css'
 
 export type StoryViewProps = {
@@ -147,11 +158,26 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     distribution: true,
   })
   const [mapStyle, setMapStyle] = useState({ id: 'aimsun-teal', url: STORY_MAP_STYLE })
+  const [timelineBySlide, setTimelineBySlide] = useState<Record<string, SlideTimeline>>({})
+  const [timelinePlaying, setTimelinePlaying] = useState(false)
+  const [playbackSpeed, setPlaybackSpeed] = useState(1)
 
   const activeSlideIndex = Math.min(slideIndex, slides.length - 1)
   const slide = slides[activeSlideIndex]
+  const [timelineSlideId, setTimelineSlideId] = useState(slide.id)
+  if (timelineSlideId !== slide.id) {
+    setTimelineSlideId(slide.id)
+    setTimelinePlaying(false)
+  }
   const filters = filtersBySlide[slide.id] ?? story.filters
-  const scene = storySceneAt(activeSlideIndex)
+  const timeline = timelineBySlide[slide.id] ?? DEFAULT_SLIDE_TIMELINE
+  const timelineRange = timelineRangeById(timeline.rangeId)
+  const timelineGranularity = timelineGranularityById(timeline.granularityId)
+  const frameCount = timelineFrameCount(timelineRange, timelineGranularity)
+  const frameStepMs = timelineStepMs(frameCount, playbackSpeed)
+  const framePhase = timeline.frame / frameCount
+  const baseScene = storySceneAt(activeSlideIndex)
+  const scene = useMemo(() => sceneAtPhase(baseScene, framePhase), [baseScene, framePhase])
   const insight = scene.insight
   const emissionsLine = useMemo(
     () => warpPath(EMISSIONS_LINE, insight.emissionsWarp),
@@ -171,6 +197,25 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   }
   const canPrev = activeSlideIndex > 0
   const canNext = activeSlideIndex < slides.length - 1
+
+  const updateTimeline = (slideId: string, update: (current: SlideTimeline) => SlideTimeline) => {
+    setTimelineBySlide((current) => ({
+      ...current,
+      [slideId]: update(current[slideId] ?? DEFAULT_SLIDE_TIMELINE),
+    }))
+  }
+
+  useEffect(() => {
+    if (!timelinePlaying) return
+    const slideId = slide.id
+    const timer = window.setTimeout(() => {
+      setTimelineBySlide((current) => {
+        const entry = current[slideId] ?? DEFAULT_SLIDE_TIMELINE
+        return { ...current, [slideId]: { ...entry, frame: (entry.frame + 1) % frameCount } }
+      })
+    }, frameStepMs)
+    return () => window.clearTimeout(timer)
+  }, [timelinePlaying, timeline.frame, frameStepMs, slide.id, frameCount])
 
   const toggleSection = (section: StoryEditSection) => {
     setDirectSlideEditor(false)
@@ -259,6 +304,9 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       ...current,
       [id]: sourceFilters.map((filter) => ({ ...filter })),
     }))
+    setTimelineBySlide((current) =>
+      current[slide.id] ? { ...current, [id]: { ...current[slide.id] } } : current,
+    )
     setSlideIndex(slides.length)
     setSlideMenuOpen(false)
   }
@@ -268,6 +316,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     const deletedIndex = activeSlideIndex
     setSlides((items) => items.filter((item) => item.id !== slide.id))
     setFiltersBySlide((current) => {
+      const next = { ...current }
+      delete next[slide.id]
+      return next
+    })
+    setTimelineBySlide((current) => {
       const next = { ...current }
       delete next[slide.id]
       return next
@@ -303,6 +356,9 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         className={styles.map}
         layers={layers}
         sceneIndex={activeSlideIndex}
+        framePhase={framePhase}
+        frameDuration={timelinePlaying ? frameStepMs : 500}
+        frameLinear={timelinePlaying}
         styleUrl={mapStyle.url}
       />
 
@@ -641,121 +697,139 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           />
         ) : null}
 
-        <div className={styles.mapData}>
-          <button
-            type="button"
-            className={styles.mapDataHeader}
-            onClick={() => setLegendOpen((o) => !o)}
-            aria-expanded={legendOpen}
-          >
-            <span>Map Data</span>
-            <CaretDown
-              size={18}
-              weight="regular"
-              className={legendOpen ? undefined : styles.caretClosed}
-              aria-hidden
-            />
-          </button>
-          {legendOpen ? (
-            <div className={styles.mapDataBody}>
-              <div className={styles.legendGroup}>
-                <div className={styles.legendHead}>
-                  <p className={styles.legendSection}>Abu Dhabi Monitored Junctions</p>
-                  <span className={styles.legendActions}>
-                    <button type="button" className={styles.legendIconBtn} aria-label="Junction style">
-                      <PaintBucket size={16} weight="regular" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      className={`${styles.legendIconBtn}${layers.junctions ? '' : ` ${styles.legendIconOff}`}`}
-                      aria-label="Toggle monitored junctions"
-                      aria-pressed={layers.junctions}
-                      onClick={() => setLayers((current) => ({ ...current, junctions: !current.junctions }))}
+        <div className={styles.mapStack}>
+          <StoryTimeSeries
+            range={timelineRange}
+            granularity={timelineGranularity}
+            frameCount={frameCount}
+            frame={timeline.frame}
+            playing={timelinePlaying}
+            speed={playbackSpeed}
+            stepMs={frameStepMs}
+            onFrameChange={(frame) => updateTimeline(slide.id, (current) => ({ ...current, frame }))}
+            onPlayingChange={setTimelinePlaying}
+            onSpeedChange={setPlaybackSpeed}
+            onGranularityChange={(granularityId) =>
+              updateTimeline(slide.id, (current) => withGranularity(current, granularityId))
+            }
+            onRangeChange={(rangeId) => updateTimeline(slide.id, (current) => withRange(current, rangeId))}
+          />
+          <div className={styles.mapData}>
+            <button
+              type="button"
+              className={styles.mapDataHeader}
+              onClick={() => setLegendOpen((o) => !o)}
+              aria-expanded={legendOpen}
+            >
+              <span>Map Data</span>
+              <CaretDown
+                size={18}
+                weight="regular"
+                className={legendOpen ? undefined : styles.caretClosed}
+                aria-hidden
+              />
+            </button>
+            {legendOpen ? (
+              <div className={styles.mapDataBody}>
+                <div className={styles.legendGroup}>
+                  <div className={styles.legendHead}>
+                    <p className={styles.legendSection}>Abu Dhabi Monitored Junctions</p>
+                    <span className={styles.legendActions}>
+                      <button type="button" className={styles.legendIconBtn} aria-label="Junction style">
+                        <PaintBucket size={16} weight="regular" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.legendIconBtn}${layers.junctions ? '' : ` ${styles.legendIconOff}`}`}
+                        aria-label="Toggle monitored junctions"
+                        aria-pressed={layers.junctions}
+                        onClick={() => setLayers((current) => ({ ...current, junctions: !current.junctions }))}
+                      >
+                        {layers.junctions ? (
+                          <Eye size={16} weight="regular" aria-hidden />
+                        ) : (
+                          <EyeSlash size={16} weight="regular" aria-hidden />
+                        )}
+                      </button>
+                    </span>
+                  </div>
+                  <div className={styles.legendRow}>
+                    <span className={styles.legendMark}>
+                      <i
+                        className={styles.diskOther}
+                        style={{
+                          borderColor: scene.legend.diskRing,
+                          backgroundColor: `${scene.legend.diskRing}1f`,
+                        }}
+                      />
+                      Other
+                    </span>
+                    <span className={styles.legendCount}>
+                      <AnimatedNumber value={scene.legend.junctionCount} format={formatCount} />
+                    </span>
+                  </div>
+                  <div className={styles.legendScale}>
+                    <span>Low</span>
+                    <span
+                      className={styles.diskScale}
+                      style={{ '--disk-scale': scene.legend.diskScale } as CSSProperties}
+                      aria-hidden
                     >
-                      {layers.junctions ? (
-                        <Eye size={16} weight="regular" aria-hidden />
-                      ) : (
-                        <EyeSlash size={16} weight="regular" aria-hidden />
-                      )}
-                    </button>
-                  </span>
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    <span>High</span>
+                  </div>
                 </div>
-                <div className={styles.legendRow}>
-                  <span className={styles.legendMark}>
-                    <i
-                      className={styles.diskOther}
-                      style={{
-                        borderColor: scene.legend.diskRing,
-                        backgroundColor: `${scene.legend.diskRing}1f`,
-                      }}
-                    />
-                    Other
-                  </span>
-                  <span className={styles.legendCount}>
-                    <AnimatedNumber value={scene.legend.junctionCount} format={formatCount} />
-                  </span>
+                <div className={styles.legendGroup}>
+                  <div className={styles.legendHead}>
+                    <p className={styles.legendSection}>Abu Dhabi Value Distribution</p>
+                    <span className={styles.legendActions}>
+                      <button type="button" className={styles.legendIconBtn} aria-label="Distribution style">
+                        <PaintBucket size={16} weight="regular" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.legendIconBtn}${layers.distribution ? '' : ` ${styles.legendIconOff}`}`}
+                        aria-label="Toggle value distribution"
+                        aria-pressed={layers.distribution}
+                        onClick={() =>
+                          setLayers((current) => ({ ...current, distribution: !current.distribution }))
+                        }
+                      >
+                        {layers.distribution ? (
+                          <Eye size={16} weight="regular" aria-hidden />
+                        ) : (
+                          <EyeSlash size={16} weight="regular" aria-hidden />
+                        )}
+                      </button>
+                    </span>
+                  </div>
+                  <div className={styles.legendScale}>
+                    <span>Low</span>
+                    <span className={styles.columnScale} aria-hidden>
+                      <ColumnGlyph height={16} colors={scene.legend.glyphs[0]} />
+                      <ColumnGlyph height={24} colors={scene.legend.glyphs[1]} />
+                      <ColumnGlyph height={34} colors={scene.legend.glyphs[2]} />
+                    </span>
+                    <span>High</span>
+                  </div>
                 </div>
-                <div className={styles.legendScale}>
-                  <span>Low</span>
-                  <span
-                    className={styles.diskScale}
-                    style={{ '--disk-scale': scene.legend.diskScale } as CSSProperties}
-                    aria-hidden
+                {storyMode === 'edit' ? (
+                  <button
+                    type="button"
+                    className={`${styles.addMapLayerBtn}${editSection === 'layers' ? ` ${styles.addMapLayerBtnActive}` : ''}`}
+                    aria-pressed={editSection === 'layers'}
+                    onClick={() => toggleSection('layers')}
                   >
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                  <span>High</span>
-                </div>
+                    <Plus size={16} weight="bold" aria-hidden />
+                    Map layer
+                  </button>
+                ) : null}
               </div>
-              <div className={styles.legendGroup}>
-                <div className={styles.legendHead}>
-                  <p className={styles.legendSection}>Abu Dhabi Value Distribution</p>
-                  <span className={styles.legendActions}>
-                    <button type="button" className={styles.legendIconBtn} aria-label="Distribution style">
-                      <PaintBucket size={16} weight="regular" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      className={`${styles.legendIconBtn}${layers.distribution ? '' : ` ${styles.legendIconOff}`}`}
-                      aria-label="Toggle value distribution"
-                      aria-pressed={layers.distribution}
-                      onClick={() =>
-                        setLayers((current) => ({ ...current, distribution: !current.distribution }))
-                      }
-                    >
-                      {layers.distribution ? (
-                        <Eye size={16} weight="regular" aria-hidden />
-                      ) : (
-                        <EyeSlash size={16} weight="regular" aria-hidden />
-                      )}
-                    </button>
-                  </span>
-                </div>
-                <div className={styles.legendScale}>
-                  <span>Low</span>
-                  <span className={styles.columnScale} aria-hidden>
-                    <ColumnGlyph height={16} colors={scene.legend.glyphs[0]} />
-                    <ColumnGlyph height={24} colors={scene.legend.glyphs[1]} />
-                    <ColumnGlyph height={34} colors={scene.legend.glyphs[2]} />
-                  </span>
-                  <span>High</span>
-                </div>
-              </div>
-              {storyMode === 'edit' ? (
-                <button
-                  type="button"
-                  className={`${styles.addMapLayerBtn}${editSection === 'layers' ? ` ${styles.addMapLayerBtnActive}` : ''}`}
-                  aria-pressed={editSection === 'layers'}
-                  onClick={() => toggleSection('layers')}
-                >
-                  <Plus size={16} weight="bold" aria-hidden />
-                  Map layer
-                </button>
-              ) : null}
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </div>
 
         <div className={styles.lowerNav} aria-label="Story navigation">
@@ -847,7 +921,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                     onClick={() => toggleSection('map')}
                   >
                     <MapTrifold size={18} weight="regular" aria-hidden />
-                    Config background
+                    Background
                   </button>
                   <span className={styles.modeDivider} aria-hidden />
                 </div>

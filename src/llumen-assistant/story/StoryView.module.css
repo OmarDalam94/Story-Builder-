@@ -887,13 +887,20 @@
   align-self: center;
 }
 
-.mapData {
+.mapStack {
   position: absolute;
   right: 20px;
   bottom: 18px;
   z-index: 5;
-  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   width: 300px;
+}
+
+.mapData {
+  pointer-events: auto;
+  width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
   background: rgba(26, 26, 26, 0.5);
@@ -1324,7 +1331,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .mapData {
+  .mapStack {
     width: min(280px, calc(100% - 40px));
   }
 

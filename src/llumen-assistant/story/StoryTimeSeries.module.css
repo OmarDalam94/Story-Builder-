@@ -1,0 +1,470 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(26, 26, 26, 0.5);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  color: #fff;
+  pointer-events: auto;
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+}
+
+.stepGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.granularitySlider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 76px;
+  height: 20px;
+  border-radius: 999px;
+  cursor: pointer;
+  touch-action: none;
+  outline: none;
+}
+
+.granularitySlider:focus-visible {
+  box-shadow: 0 0 0 2px rgba(132, 220, 255, 0.45);
+}
+
+.granularitySlider i {
+  display: block;
+  flex-shrink: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.granularitySlider:hover i:not(.dotActive) {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.granularitySlider i.dotActive {
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
+  transform: scale(2);
+}
+
+.unit {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.speedBtn,
+.playBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  margin: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+
+.speedBtn {
+  min-width: 42px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.playBtn {
+  width: 28px;
+  padding: 0;
+}
+
+.speedBtn:hover,
+.playBtn:hover,
+.controlOpen {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.scrubber {
+  position: relative;
+  height: 28px;
+  margin-top: 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  touch-action: none;
+  outline: none;
+}
+
+.scrubber:focus-visible .thumb {
+  box-shadow: 0 0 0 3px rgba(132, 220, 255, 0.45);
+}
+
+.track {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-50%);
+}
+
+.trackFill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--progress) * (100% - 31px) + 15.5px);
+  border-radius: inherit;
+  background: #fff;
+  transition: width var(--thumb-transition);
+}
+
+.thumb {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--progress) * (100% - 31px));
+  display: flex;
+  gap: 2px;
+  width: 31px;
+  padding: 2px;
+  border: 1px solid #b3b3b3;
+  border-radius: 360px;
+  background: #fff;
+  color: #1a1a1a;
+  transform: translateY(-50%);
+  transition:
+    left var(--thumb-transition),
+    box-shadow 160ms ease;
+}
+
+.scrubbing .thumb {
+  cursor: grabbing;
+}
+
+.dateRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 16px;
+  margin-top: 8px;
+}
+
+.date {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.funnelBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+
+.funnelBtn:hover,
+.funnelBtn.controlOpen {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(26, 26, 26, 0.5);
+  backdrop-filter: blur(30px) saturate(140%);
+  -webkit-backdrop-filter: blur(30px) saturate(140%);
+  box-shadow:
+    0 12px 16px -4px rgba(10, 13, 18, 0.24),
+    0 4px 6px -2px rgba(10, 13, 18, 0.16);
+  color: #fff;
+  font-family: inherit;
+}
+
+.speedMenu {
+  width: 260px;
+  gap: 12px;
+}
+
+.datesMenu {
+  width: 300px;
+  gap: 8px;
+  padding: 12px 4px 4px;
+}
+
+.granularityMenu {
+  width: 140px;
+  padding: 6px 4px;
+}
+
+.granularityItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px 6px 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.4);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.granularityItem:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.granularityItemActive,
+.granularityItemActive:hover {
+  color: #fff;
+}
+
+.granularityCheck {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  width: 14px;
+}
+
+.menuTitle {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.datesMenu .menuTitle {
+  padding: 0 8px;
+}
+
+.speedValue {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 24px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.speedSliderRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stepBtn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+}
+
+.stepBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.stepBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.speedSlider {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.speedSlider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #fff calc(var(--fill) * 100%),
+    rgba(255, 255, 255, 0.2) calc(var(--fill) * 100%)
+  );
+}
+
+.speedSlider::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 1px solid #b3b3b3;
+  border-radius: 50%;
+  background: #fff;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.speedSlider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.speedSlider::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.speedSlider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 1px solid #b3b3b3;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.speedSlider:focus-visible {
+  outline: none;
+}
+
+.speedSlider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(132, 220, 255, 0.45);
+}
+
+.speedChips {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.speedChip {
+  height: 28px;
+  margin: 0;
+  padding: 0 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.speedChip:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.speedChipActive,
+.speedChipActive:hover {
+  border-color: transparent;
+  background: #fff;
+  color: #1a1a1a;
+}
+
+.setupList {
+  display: flex;
+  flex-direction: column;
+}
+
+.setupItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.setupItem:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.setupItemActive {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.setupText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.setupLabel {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.setupDetail {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  line-height: 16px;
+}

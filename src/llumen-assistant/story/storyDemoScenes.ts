@@ -224,6 +224,78 @@ export function storySceneAt(slideIndex: number) {
   return STORY_SCENES[slideIndex % STORY_SCENES.length]
 }
 
+const CITY_CENTER: [number, number] = [54.44, 24.46]
+const SITE_BAR_COUNT = 47
+
+function signedHash(index: number, seed: number) {
+  return hash(index, seed) * 2 - 1
+}
+
+/** −1…1 west→east pattern (with per-point jitter) that rolls values across the city. */
+function spatialWave(lng: number, lat: number, index: number, seed: number) {
+  const x = Math.max(-1, Math.min(1, ((lng - CITY_CENTER[0]) * KM_PER_DEG_LNG) / 10))
+  const y = Math.max(-1, Math.min(1, ((lat - CITY_CENTER[1]) * KM_PER_DEG_LAT) / 8))
+  return 0.6 * x + 0.25 * y + 0.35 * signedHash(index, seed)
+}
+
+function offlineBarsFor(insight: StoryScene['insight'], online: number) {
+  const baseOffline = Math.max(1, insight.sites - insight.online)
+  const count = Math.max(
+    1,
+    Math.min(12, Math.round((insight.offlineBars.length * (insight.sites - online)) / baseOffline)),
+  )
+  const extra = Array.from({ length: SITE_BAR_COUNT }, (_, index) => index)
+    .filter((index) => !insight.offlineBars.includes(index))
+    .sort((a, b) => hash(a, 12) - hash(b, 12))
+  return [...insight.offlineBars, ...extra].slice(0, count).sort((a, b) => a - b)
+}
+
+/**
+ * The slide's scene at a point of its timeline loop (`phase` 0…1). Phase 0 is the
+ * authored scene; the loop is periodic so the last frame flows back into the first.
+ */
+export function sceneAtPhase(scene: StoryScene, phase: number): StoryScene {
+  if (phase === 0) return scene
+  const a = Math.sin(2 * Math.PI * phase)
+  const b = Math.sin(4 * Math.PI * phase)
+  const { insight, legend } = scene
+  const online = Math.min(insight.sites, Math.round(insight.online * (1 + 0.035 * a - 0.02 * b)))
+  return {
+    ...scene,
+    columnHeight: (lng, lat, base, index) => {
+      const height = scene.columnHeight(lng, lat, base, index)
+      const scale = 1 + 0.55 * a * spatialWave(lng, lat, index, 7) + 0.25 * b * signedHash(index, 8)
+      return Math.max(60, Math.min(COLUMN_MAX_HEIGHT_M, height * scale))
+    },
+    diskRadius: (lng, lat, base, index) => {
+      const radius = scene.diskRadius(lng, lat, base, index)
+      const scale = 1 + 0.4 * a * spatialWave(lng, lat, index, 9) + 0.2 * b * signedHash(index, 10)
+      return Math.max(base * 0.25, radius * scale)
+    },
+    legend: {
+      ...legend,
+      junctionCount: Math.round(legend.junctionCount * (1 + 0.05 * a + 0.02 * b)),
+    },
+    insight: {
+      ...insight,
+      emissionsWarp: (x, y) =>
+        clampY(
+          insight.emissionsWarp(x, y) -
+            12 * a * Math.sin((Math.PI * x) / 100) -
+            5 * b * Math.sin((2 * Math.PI * x) / 100),
+        ),
+      groundwaterValue: Math.round((insight.groundwaterValue + 0.16 * a + 0.05 * b) * 100) / 100,
+      groundwaterWarp: (x, y) =>
+        clampY(insight.groundwaterWarp(x, y) - 10 * a * (x / 100) - 4 * b * Math.sin((2 * Math.PI * x) / 100)),
+      terrestrial: Math.round(insight.terrestrial * (1 + 0.14 * a)),
+      marine: Math.round(insight.marine * (1 - 0.12 * a + 0.06 * b)),
+      online,
+      uptime: Math.min(100, Math.round(insight.uptime + ((online - insight.online) / insight.sites) * 100)),
+      offlineBars: offlineBarsFor(insight, online),
+    },
+  }
+}
+
 export type StorySceneState = {
   heights: number[]
   columnColors: [number, number, number][]
