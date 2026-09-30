@@ -2,21 +2,23 @@
  * Landing Story content type — Figma slide-landing-screen-map (3359:3802).
  * Full-page main content (not agent subcontext). Map from llumen-map-legend layers.
  */
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowLeft,
   ArrowRight,
+  BoundingBox,
   Buildings,
   CalendarBlank,
   CaretDown,
   Copy,
-  DotsThree,
+  DotsThreeVertical,
   Export,
   Eye,
   EyeSlash,
   GearSix,
   GenderIntersex,
+  IdentificationCard,
   Info,
   List,
   MapPin,
@@ -26,6 +28,7 @@ import {
   PencilSimple,
   Play,
   Plus,
+  Selection,
   Student,
   SquaresFour,
   Trash,
@@ -40,10 +43,21 @@ import {
   EmissionsChart,
   GROUNDWATER_LINE,
   GroundwaterChart,
+  KpiLine,
   MonitoringSitesChart,
   formatCount,
   warpPath,
 } from './StoryCharts'
+import { StoryCardConfigModal } from './StoryCardConfigModal'
+import { DEFAULT_CHART_KPI, resolveKpi, type ChartCardId, type ChartKpiConfig } from './storyKpi'
+import { StorySummaryConfigModal } from './StorySummaryConfigModal'
+import {
+  SUMMARY_REGENERATE_MS,
+  defaultSummaryConfig,
+  gradientVars,
+  type SummaryConfig,
+} from './storySummary'
+import gradientStyles from './storyGradientBorder.module.css'
 import {
   StoryEditPanel,
   type StoryEditSection,
@@ -98,6 +112,20 @@ function filterIcon(id: string) {
       return <SquaresFour size={18} weight="regular" aria-hidden />
   }
 }
+
+type InsightCardId = 'summary' | ChartCardId
+
+type InsightCardPrefs = {
+  hidden?: boolean
+  border?: boolean
+  outline?: boolean
+  deleted?: boolean
+  kpi?: ChartKpiConfig
+  summary?: SummaryConfig
+}
+
+const CARD_MENU_WIDTH = 200
+const CARD_MENU_HEIGHT = 192
 
 function copySlide(slide: StorySlide): StorySlide {
   return {
@@ -157,6 +185,17 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const [timelineBySlide, setTimelineBySlide] = useState<Record<string, SlideTimeline>>({})
   const [timelinePlaying, setTimelinePlaying] = useState(false)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
+  const [cardPrefsBySlide, setCardPrefsBySlide] = useState<
+    Record<string, Partial<Record<InsightCardId, InsightCardPrefs>>>
+  >({})
+  const [cardMenu, setCardMenu] = useState<{
+    slideId: string
+    cardId: InsightCardId
+    top: number
+    left: number
+  } | null>(null)
+  const [cardConfig, setCardConfig] = useState<{ slideId: string; cardId: InsightCardId } | null>(null)
+  const [regeneratingSlideId, setRegeneratingSlideId] = useState<string | null>(null)
 
   const activeSlideIndex = Math.min(slideIndex, slides.length - 1)
   const slide = slides[activeSlideIndex]
@@ -213,6 +252,115 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     }, frameStepMs)
     return () => window.clearTimeout(timer)
   }, [timelinePlaying, timeline.frame, frameStepMs, slide.id, frameCount])
+
+  const cardPrefs = cardPrefsBySlide[slide.id] ?? {}
+  const openCardMenu = cardMenu?.slideId === slide.id && storyMode === 'edit' ? cardMenu : null
+  const openCardPrefs = openCardMenu ? (cardPrefs[openCardMenu.cardId] ?? {}) : {}
+  const openCardConfig = cardConfig?.slideId === slide.id && storyMode === 'edit' ? cardConfig : null
+
+  const chartKpi = (cardId: ChartCardId) => {
+    const config = cardPrefs[cardId]?.kpi
+    if (!config) return undefined
+    const kpi = resolveKpi(config, scene)
+    return kpi ? <KpiLine {...kpi} /> : null
+  }
+
+  const summaryConfig =
+    cardPrefs.summary?.summary ?? defaultSummaryConfig(slide.chapterId, slide.id)
+
+  useEffect(() => {
+    if (!regeneratingSlideId) return
+    const timer = window.setTimeout(() => setRegeneratingSlideId(null), SUMMARY_REGENERATE_MS)
+    return () => window.clearTimeout(timer)
+  }, [regeneratingSlideId])
+
+  const updateCard = (cardId: InsightCardId, patch: InsightCardPrefs) => {
+    setCardPrefsBySlide((current) => ({
+      ...current,
+      [slide.id]: { ...current[slide.id], [cardId]: { ...current[slide.id]?.[cardId], ...patch } },
+    }))
+  }
+
+  const toggleCardMenu = (cardId: InsightCardId, button: HTMLElement) => {
+    if (openCardMenu?.cardId === cardId) {
+      setCardMenu(null)
+      return
+    }
+    const rect = button.getBoundingClientRect()
+    const below = rect.bottom + 6
+    setCardMenu({
+      slideId: slide.id,
+      cardId,
+      top:
+        below + CARD_MENU_HEIGHT > window.innerHeight - 8
+          ? Math.max(8, rect.top - 6 - CARD_MENU_HEIGHT)
+          : below,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - CARD_MENU_WIDTH - 8)),
+    })
+    setStoryMenuOpen(false)
+    setSlideMenuOpen(false)
+  }
+
+  useEffect(() => {
+    if (!openCardMenu) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element
+      if (target.closest('#insight-card-menu, [data-card-menu-trigger]')) return
+      setCardMenu(null)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCardMenu(null)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [openCardMenu])
+
+  const insightCard = (
+    id: InsightCardId,
+    className: string,
+    title: string,
+    children: ReactNode,
+    style?: CSSProperties,
+  ) => {
+    const prefs = cardPrefs[id] ?? {}
+    if (prefs.deleted || (prefs.hidden && storyMode !== 'edit')) return null
+    const menuOpen = openCardMenu?.cardId === id
+    return (
+      <section
+        key={id}
+        className={[
+          className,
+          styles.insightCard,
+          prefs.hidden ? styles.insightCardHidden : '',
+          prefs.border ? styles.insightCardBorder : '',
+          prefs.outline ? styles.insightCardOutline : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        style={style}
+      >
+        {children}
+        {storyMode === 'edit' ? (
+          <button
+            type="button"
+            data-card-menu-trigger
+            className={`${styles.storyMenuBtn} ${styles.insightCardMenuBtn}${menuOpen ? ` ${styles.storyMenuBtnOpen}` : ''}`}
+            aria-label={`${title} actions`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-controls={menuOpen ? 'insight-card-menu' : undefined}
+            onClick={(event) => toggleCardMenu(id, event.currentTarget)}
+          >
+            <DotsThreeVertical size={16} weight="bold" aria-hidden />
+          </button>
+        ) : null}
+      </section>
+    )
+  }
 
   const toggleSection = (section: StoryEditSection) => {
     setDirectSlideEditor(false)
@@ -304,6 +452,9 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     setTimelineBySlide((current) =>
       current[slide.id] ? { ...current, [id]: { ...current[slide.id] } } : current,
     )
+    setCardPrefsBySlide((current) =>
+      current[slide.id] ? { ...current, [id]: { ...current[slide.id] } } : current,
+    )
     setSlideIndex(slides.length)
     setSlideMenuOpen(false)
   }
@@ -318,6 +469,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       return next
     })
     setTimelineBySlide((current) => {
+      const next = { ...current }
+      delete next[slide.id]
+      return next
+    })
+    setCardPrefsBySlide((current) => {
       const next = { ...current }
       delete next[slide.id]
       return next
@@ -378,7 +534,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                     aria-controls="story-title-menu"
                     onClick={toggleStoryMenu}
                   >
-                    <DotsThree size={16} weight="bold" aria-hidden />
+                    <DotsThreeVertical size={16} weight="bold" aria-hidden />
                   </button>
                 ) : null}
               </div>
@@ -395,7 +551,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                     aria-controls="slide-title-menu"
                     onClick={toggleSlideMenu}
                   >
-                    <DotsThree size={16} weight="bold" aria-hidden />
+                    <DotsThreeVertical size={16} weight="bold" aria-hidden />
                   </button>
                 ) : (
                   <button
@@ -418,6 +574,20 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             </div>
           </div>
           <div className={styles.filters}>
+            {storyMode === 'edit' ? (
+              <>
+                <button
+                  type="button"
+                  className={`${styles.filterAddBtn}${editSection === 'filters' ? ` ${styles.filterAddBtnActive}` : ''}`}
+                  aria-pressed={editSection === 'filters'}
+                  onClick={() => toggleSection('filters')}
+                >
+                  <Plus size={16} weight="bold" aria-hidden />
+                  Filters
+                </button>
+                {filters.length > 0 ? <span className={styles.filterDivider} aria-hidden /> : null}
+              </>
+            ) : null}
             {filters.map((f) => (
               <span
                 key={f.id}
@@ -442,17 +612,6 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 ) : null}
               </span>
             ))}
-            {storyMode === 'edit' ? (
-              <button
-                type="button"
-                className={`${styles.filterAddBtn}${editSection === 'filters' ? ` ${styles.filterAddBtnActive}` : ''}`}
-                aria-pressed={editSection === 'filters'}
-                onClick={() => toggleSection('filters')}
-              >
-                <Plus size={16} weight="bold" aria-hidden />
-                Filters
-              </button>
-            ) : null}
           </div>
           <div className={styles.headerRule} aria-hidden />
         </header>
@@ -474,41 +633,78 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               .join(' ')}
             aria-label="Story insight"
           >
-            <section className={styles.summaryCard}>
-              <h2 className={styles.summaryTitle}>Executive Summary</h2>
-              <p className={styles.summaryBody}>
-                Key Performance Indicators (KPIs) are the critical navigational instruments that
-                organizations rely upon to understand whether they are on course to reach their
-                strategic objectives or whether adjustments need to be made along the way. At their
-                core, KPIs translate complex business operations into quantifiable metrics that
-                leaders, managers, and individual contributors can use to assess progress, identify
-                trends, and make informed decisions. Without well-defined KPIs, organizations
-                operate in a fog — they may have a general sense of direction, but they lack the
-                precision needed to steer effectively through competitive markets and rapidly
-                changing environments.
-              </p>
-            </section>
-
-            <section className={styles.visualCard}>
-              <EmissionsChart yLabels={insight.emissionsLabels} line={emissionsLine} />
-            </section>
-
-            <section className={styles.visualCard}>
-              <GroundwaterChart value={insight.groundwaterValue} line={groundwaterLine} />
-            </section>
-
-            <section className={styles.visualCard}>
-              <BiodiversityChart terrestrial={insight.terrestrial} marine={insight.marine} />
-            </section>
-
-            <section className={styles.visualCard}>
+            {insightCard(
+              'summary',
+              [
+                styles.summaryCard,
+                gradientStyles.gradientBorder,
+                regeneratingSlideId === slide.id ? styles.summaryRegenerating : '',
+              ]
+                .filter(Boolean)
+                .join(' '),
+              'Executive Summary',
+              <>
+                <h2 className={styles.summaryTitle}>Executive Summary</h2>
+                <p className={styles.summaryBody}>
+                  Key Performance Indicators (KPIs) are the{' '}
+                  <em className={styles.summaryEmphasis}>critical navigational instruments</em> that
+                  organizations rely upon to understand whether they are on course to reach their
+                  strategic objectives or whether adjustments need to be made along the way. At their
+                  core, KPIs translate complex business operations into{' '}
+                  <em className={styles.summaryEmphasis}>quantifiable metrics</em> that leaders,
+                  managers, and individual contributors can use to assess progress, identify trends,
+                  and make informed decisions. Without well-defined KPIs, organizations operate in a
+                  fog — they may have a general sense of direction, but they lack the precision needed
+                  to steer effectively through competitive markets and rapidly changing environments.
+                </p>
+              </>,
+              {
+                ...gradientVars(summaryConfig.gradient),
+                '--summary-accent': summaryConfig.accent,
+              } as CSSProperties,
+            )}
+            {insightCard(
+              'emissions',
+              styles.visualCard,
+              'Emissions trajectory',
+              <EmissionsChart
+                yLabels={insight.emissionsLabels}
+                line={emissionsLine}
+                kpi={chartKpi('emissions')}
+              />,
+            )}
+            {insightCard(
+              'groundwater',
+              styles.visualCard,
+              'Groundwater level',
+              <GroundwaterChart
+                value={insight.groundwaterValue}
+                line={groundwaterLine}
+                kpi={chartKpi('groundwater')}
+              />,
+            )}
+            {insightCard(
+              'biodiversity',
+              styles.visualCard,
+              'Biodiversity activity',
+              <BiodiversityChart
+                terrestrial={insight.terrestrial}
+                marine={insight.marine}
+                kpi={chartKpi('biodiversity')}
+              />,
+            )}
+            {insightCard(
+              'sites',
+              styles.visualCard,
+              'Monitoring sites',
               <MonitoringSitesChart
                 online={insight.online}
                 sites={insight.sites}
                 uptime={insight.uptime}
                 offlineBars={insight.offlineBars}
-              />
-            </section>
+                kpi={chartKpi('sites')}
+              />,
+            )}
           </aside>
         </div>
 
@@ -983,6 +1179,103 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           document.body,
         )
       : null}
+    {openCardMenu
+      ? createPortal(
+          <div
+            id="insight-card-menu"
+            className={styles.storyMenu}
+            role="menu"
+            aria-label="Card actions"
+            style={{ top: openCardMenu.top, left: openCardMenu.left }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setCardMenu(null)
+                setDirectSlideEditor(false)
+                setEditSection(null)
+                setCardConfig({ slideId: slide.id, cardId: openCardMenu.cardId })
+              }}
+            >
+              <GearSix size={16} weight="regular" aria-hidden />
+              Configure
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                updateCard(openCardMenu.cardId, { hidden: !openCardPrefs.hidden })
+                setCardMenu(null)
+              }}
+            >
+              <IdentificationCard size={16} weight="regular" aria-hidden />
+              {openCardPrefs.hidden ? 'Show Card' : 'Hide Card'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                updateCard(openCardMenu.cardId, { border: !openCardPrefs.border })
+                setCardMenu(null)
+              }}
+            >
+              <BoundingBox size={16} weight="regular" aria-hidden />
+              {openCardPrefs.border ? 'Hide Border' : 'Show Border'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                updateCard(openCardMenu.cardId, { outline: !openCardPrefs.outline })
+                setCardMenu(null)
+              }}
+            >
+              <Selection size={16} weight="regular" aria-hidden />
+              {openCardPrefs.outline ? 'Hide Outline' : 'Show Outline'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.storyMenuDanger}
+              onClick={() => {
+                updateCard(openCardMenu.cardId, { deleted: true })
+                setCardMenu(null)
+              }}
+            >
+              <Trash size={16} weight="regular" aria-hidden />
+              Delete
+            </button>
+          </div>,
+          document.body,
+        )
+      : null}
+      {openCardConfig?.cardId === 'summary' ? (
+        <StorySummaryConfigModal
+          key={`${openCardConfig.slideId}-summary`}
+          initial={summaryConfig}
+          chapters={chapters}
+          slides={slides}
+          currentChapterId={slide.chapterId}
+          currentSlideId={slide.id}
+          onSave={(summary) => {
+            updateCard('summary', { summary })
+            if (summary.autoRegenerate) setRegeneratingSlideId(slide.id)
+            setCardConfig(null)
+          }}
+          onClose={() => setCardConfig(null)}
+        />
+      ) : openCardConfig ? (
+        <StoryCardConfigModal
+          key={`${openCardConfig.slideId}-${openCardConfig.cardId}`}
+          initial={cardPrefs[openCardConfig.cardId]?.kpi ?? DEFAULT_CHART_KPI[openCardConfig.cardId]}
+          onSave={(kpi) => {
+            updateCard(openCardConfig.cardId, { kpi })
+            setCardConfig(null)
+          }}
+          onClose={() => setCardConfig(null)}
+        />
+      ) : null}
       <ShareModal
         open={shareOpen}
         title={`Share “${storyTitle}”`}

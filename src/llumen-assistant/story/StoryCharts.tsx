@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import styles from './StoryView.module.css'
 
 export const EMISSIONS_LINE =
@@ -52,6 +52,28 @@ function useTweenedNumber(value: number, durationMs = 900) {
 
 export function AnimatedNumber({ value, format }: { value: number; format: (value: number) => string }) {
   return <>{format(useTweenedNumber(value))}</>
+}
+
+export function KpiLine(
+  props: { text: string } | { value: number; format: (value: number) => string; suffix: string },
+) {
+  if ('text' in props) {
+    const [, lead = props.text, rest = ''] = /^([^A-Za-z]*\d)\s*(.*)$/.exec(props.text) ?? []
+    return (
+      <p className={styles.visualValue}>
+        <strong>{lead}</strong>
+        {rest ? <span>{rest}</span> : null}
+      </p>
+    )
+  }
+  return (
+    <p className={styles.visualValue}>
+      <strong>
+        <AnimatedNumber value={props.value} format={props.format} />
+      </strong>
+      {props.suffix ? <span>{props.suffix}</span> : null}
+    </p>
+  )
 }
 
 export function TrendChart({
@@ -156,14 +178,17 @@ export function EmissionsChart({
   yLabels,
   line,
   gradientId = 'emissions-area',
+  kpi,
 }: {
   yLabels: string[]
   line: string
   gradientId?: string
+  kpi?: ReactNode
 }) {
   return (
     <>
       <p className={styles.visualTitle}>Emissions trajectory vs Net-Zero pathway</p>
+      {kpi}
       <div className={styles.chartLegend}>
         <span>
           <i className={styles.swatchProjected} />
@@ -190,20 +215,26 @@ export function GroundwaterChart({
   value,
   line,
   gradientId = 'groundwater-area',
+  kpi,
 }: {
   value: number
   line: string
   gradientId?: string
+  kpi?: ReactNode
 }) {
   return (
     <>
       <p className={styles.visualTitle}>Average Groundwater Level Change (m/year)</p>
-      <p className={styles.visualValue}>
-        <strong>
-          <AnimatedNumber value={value} format={formatSigned} />
-        </strong>
-        <span>m/year</span>
-      </p>
+      {kpi === undefined ? (
+        <p className={styles.visualValue}>
+          <strong>
+            <AnimatedNumber value={value} format={formatSigned} />
+          </strong>
+          <span>m/year</span>
+        </p>
+      ) : (
+        kpi
+      )}
       <TrendChart
         yLabels={['+0.5', '0', '-0.50']}
         xLabels={['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']}
@@ -215,18 +246,30 @@ export function GroundwaterChart({
   )
 }
 
-export function BiodiversityChart({ terrestrial, marine }: { terrestrial: number; marine: number }) {
+export function BiodiversityChart({
+  terrestrial,
+  marine,
+  kpi,
+}: {
+  terrestrial: number
+  marine: number
+  kpi?: ReactNode
+}) {
   const total = terrestrial + marine
   const terrestrialPct = Math.round((terrestrial / total) * 100)
   return (
     <>
       <p className={styles.visualTitle}>Biodiversity Activity Events</p>
-      <p className={styles.visualValue}>
-        <strong>
-          <AnimatedNumber value={total} format={formatCount} />
-        </strong>
-        <span>Triggers</span>
-      </p>
+      {kpi === undefined ? (
+        <p className={styles.visualValue}>
+          <strong>
+            <AnimatedNumber value={total} format={formatCount} />
+          </strong>
+          <span>Triggers</span>
+        </p>
+      ) : (
+        kpi
+      )}
       <div className={styles.splitBar} aria-hidden>
         <span className={styles.splitTerrestrial} style={{ flexGrow: terrestrial }} />
         <span className={styles.splitMarine} style={{ flexGrow: marine }} />
@@ -262,22 +305,28 @@ export function MonitoringSitesChart({
   sites,
   uptime,
   offlineBars,
+  kpi,
 }: {
   online: number
   sites: number
   uptime: number
   offlineBars: number[]
+  kpi?: ReactNode
 }) {
   const offline = new Set(offlineBars)
   return (
     <>
       <p className={styles.visualTitle}>Active Monitoring Sites</p>
-      <p className={styles.visualValue}>
-        <strong>
-          <AnimatedNumber value={online} format={formatCount} />
-        </strong>
-        <span>/{sites} Online</span>
-      </p>
+      {kpi === undefined ? (
+        <p className={styles.visualValue}>
+          <strong>
+            <AnimatedNumber value={online} format={formatCount} />
+          </strong>
+          <span>/{sites} Online</span>
+        </p>
+      ) : (
+        kpi
+      )}
       <span className={styles.uptimeChip}>
         <AnimatedNumber value={uptime} format={formatCount} />% Uptime
       </span>

@@ -441,17 +441,84 @@ const FILTER_CATEGORY: Record<string, string> = {
   level: 'Demographics',
 }
 
+const FILTER_DETAILS: Record<string, string> = {
+  loc: 'Limits the slide to stations and districts in the selected region.',
+  year: 'Shows readings from the selected academic year.',
+  ssi: 'Filters schools by their School Sustainability Index score.',
+  type: 'Filters by school type, such as public, private or charter.',
+  gender: 'Filters by school gender: boys, girls or mixed.',
+  level: 'Filters by school level, from kindergarten to secondary.',
+}
+
 const FILTER_CATALOG = [
-  { id: 'filter-airports', label: 'Airports', category: 'Location', icon: 'calendar' },
-  { id: 'filter-aqi-timeseries', label: 'AQI Timeseries', category: 'Time', icon: 'calendar' },
-  { id: 'filter-area', label: 'Area', category: 'Location', icon: 'pin' },
-  { id: 'filter-calendar-timeseries', label: 'CalendarTimeSeries', category: 'Time', icon: 'calendar' },
-  { id: 'filter-channel', label: 'Channel', category: 'Demographics', icon: 'grid' },
-  { id: 'filter-comparison', label: 'Comparison', category: 'Demographics', icon: 'grid' },
-  { id: 'filter-custom3-time', label: 'Custom3Time', category: 'Time', icon: 'calendar' },
-  { id: 'filter-date', label: 'Date', category: 'Time', icon: 'calendar' },
-  { id: 'filter-day', label: 'Day', category: 'Time', icon: 'calendar' },
+  {
+    id: 'filter-airports',
+    label: 'Airports',
+    category: 'Location',
+    icon: 'calendar',
+    detail: 'Focuses the map on airport zones and their surroundings.',
+  },
+  {
+    id: 'filter-aqi-timeseries',
+    label: 'AQI Timeseries',
+    category: 'Time',
+    icon: 'calendar',
+    detail: 'Steps through air quality readings over time.',
+  },
+  {
+    id: 'filter-area',
+    label: 'Area',
+    category: 'Location',
+    icon: 'pin',
+    detail: 'Limits results to a drawn or named area on the map.',
+  },
+  {
+    id: 'filter-calendar-timeseries',
+    label: 'CalendarTimeSeries',
+    category: 'Time',
+    icon: 'calendar',
+    detail: 'Picks dates from a calendar to build a time series.',
+  },
+  {
+    id: 'filter-channel',
+    label: 'Channel',
+    category: 'Demographics',
+    icon: 'grid',
+    detail: 'Splits results by data source or reporting channel.',
+  },
+  {
+    id: 'filter-comparison',
+    label: 'Comparison',
+    category: 'Demographics',
+    icon: 'grid',
+    detail: 'Compares two groups side by side, such as districts.',
+  },
+  {
+    id: 'filter-custom3-time',
+    label: 'Custom3Time',
+    category: 'Time',
+    icon: 'calendar',
+    detail: 'Sets three custom time windows to compare.',
+  },
+  {
+    id: 'filter-date',
+    label: 'Date',
+    category: 'Time',
+    icon: 'calendar',
+    detail: 'Limits results to a single date or a date range.',
+  },
+  {
+    id: 'filter-day',
+    label: 'Day',
+    category: 'Time',
+    icon: 'calendar',
+    detail: 'Filters results by day of the week.',
+  },
 ] as const
+
+function matchesFilter(label: string, detail: string, query: string) {
+  return label.toLowerCase().includes(query) || detail.toLowerCase().includes(query)
+}
 
 type FilterIcon = (typeof FILTER_CATALOG)[number]['icon'] | 'buildings' | 'gender' | 'student'
 
@@ -511,14 +578,14 @@ function AssetsPicker({
     const itemCategory = FILTER_CATEGORY[item.id] ?? 'Location'
     return (
       (category === 'All Filters' || itemCategory === category) &&
-      item.label.toLowerCase().includes(normalizedQuery)
+      matchesFilter(item.label, FILTER_DETAILS[item.id] ?? '', normalizedQuery)
     )
   })
   const catalogFilterItems = FILTER_CATALOG.filter(
     (item) =>
       !filters.some((filter) => filter.label === item.label) &&
       (category === 'All Filters' || item.category === category) &&
-      item.label.toLowerCase().includes(normalizedQuery),
+      matchesFilter(item.label, item.detail, normalizedQuery),
   )
   const visibleItems = tab === 'layers' ? layerItems : tab === 'charts' ? chartItems : filterItems
 
@@ -614,7 +681,12 @@ function AssetsPicker({
                     <span className={styles.assetFilterIcon}>
                       <FilterGlyph icon={STORY_FILTER_ICON[item.id] ?? 'grid'} />
                     </span>
-                    <span className={styles.assetFilterLabel}>{item.label}</span>
+                    <span className={styles.assetFilterText}>
+                      <span className={styles.assetFilterLabel}>{item.label}</span>
+                      {FILTER_DETAILS[item.id] ? (
+                        <span className={styles.assetFilterDetail}>{FILTER_DETAILS[item.id]}</span>
+                      ) : null}
+                    </span>
                   </button>
                 ))}
               {catalogFilterItems.map((item) => (
@@ -630,7 +702,10 @@ function AssetsPicker({
                   <span className={styles.assetFilterIcon}>
                     <FilterGlyph icon={item.icon} />
                   </span>
-                  <span className={styles.assetFilterLabel}>{item.label}</span>
+                  <span className={styles.assetFilterText}>
+                    <span className={styles.assetFilterLabel}>{item.label}</span>
+                    <span className={styles.assetFilterDetail}>{item.detail}</span>
+                  </span>
                 </button>
               ))}
               </>

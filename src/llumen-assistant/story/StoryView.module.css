@@ -313,6 +313,14 @@
   background: rgba(132, 220, 255, 0.16);
 }
 
+.filterDivider {
+  flex-shrink: 0;
+  align-self: center;
+  width: 1px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
 .headerRule {
   height: 1px;
   width: 100%;
@@ -379,6 +387,34 @@
   -webkit-backdrop-filter: blur(30px);
 }
 
+.insightCard {
+  position: relative;
+  transition:
+    opacity 200ms ease,
+    border-color 200ms ease,
+    outline-color 200ms ease;
+}
+
+.insightCardMenuBtn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+}
+
+.insightCardHidden {
+  opacity: 0.4;
+}
+
+.insightCardBorder {
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.insightCardOutline {
+  outline: 1px dashed rgba(255, 255, 255, 0.55);
+  outline-offset: 3px;
+}
+
 .summaryTitle,
 .visualTitle {
   margin: 0;
@@ -401,6 +437,33 @@
   font-weight: 400;
   line-height: 20px;
   mask-image: linear-gradient(to bottom, #000 72%, transparent);
+}
+
+.summaryEmphasis {
+  color: var(--summary-accent, inherit);
+  font-style: normal;
+  transition: color 300ms ease;
+}
+
+.summaryRegenerating .summaryBody {
+  animation: summaryRegenerate 1.4s ease both;
+}
+
+@keyframes summaryRegenerate {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  35% {
+    opacity: 0.2;
+    filter: blur(3px);
+  }
+
+  100% {
+    opacity: 1;
+    filter: blur(0);
+  }
 }
 
 .visualValue {
