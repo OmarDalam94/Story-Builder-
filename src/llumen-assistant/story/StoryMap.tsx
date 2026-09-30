@@ -196,7 +196,7 @@ export function StoryMap({
 
   useEffect(() => {
     const el = containerRef.current
-    if (!el || mapRef.current) return
+    if (!el || mapRef.current || !MAPBOX_TOKEN) return
 
     const { camera } = storySceneAt(sceneIndexRef.current)
     mapboxgl.accessToken = MAPBOX_TOKEN
