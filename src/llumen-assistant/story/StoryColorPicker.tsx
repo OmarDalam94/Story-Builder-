@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { Check } from '@phosphor-icons/react'
-import { SUMMARY_SWATCHES, normalizeHex } from './storySummary'
+import { Plus } from '@phosphor-icons/react'
+import { CustomColorPicker } from './StoryCustomColorPicker'
+import { SUMMARY_SWATCHES } from './storySummary'
 import styles from './StoryEditPanel.module.css'
 
 const POPOVER_WIDTH = 232
-const POPOVER_HEIGHT = 128
+const POPOVER_HEIGHT = 140
 
 export function ColorPicker({
   label,
@@ -20,7 +21,8 @@ export function ColorPicker({
 }) {
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState({ top: 0, left: 0 })
-  const [hexDraft, setHexDraft] = useState(value)
+  const [customOpen, setCustomOpen] = useState(false)
+  const [recentColor, setRecentColor] = useState<string | undefined>(undefined)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
 
@@ -65,20 +67,18 @@ export function ColorPicker({
   }, [open, syncPosition])
 
   const toggle = () => {
-    if (open) {
+    if (open || customOpen) {
       setOpen(false)
+      setCustomOpen(false)
       return
     }
-    setHexDraft(value)
     syncPosition()
     setOpen(true)
   }
 
-  const commitHex = () => {
-    const hex = normalizeHex(hexDraft)
-    if (hex) onChange(hex)
-    else setHexDraft(value)
-  }
+  const closeCustom = useCallback(() => setCustomOpen(false), [])
+  const swatches = SUMMARY_SWATCHES.includes(value) ? SUMMARY_SWATCHES : [...SUMMARY_SWATCHES, value]
+  const expanded = open || customOpen
 
   const swatchStyle = { '--swatch': value } as CSSProperties
 
@@ -89,11 +89,11 @@ export function ColorPicker({
           <button
             ref={triggerRef}
             type="button"
-            className={`${styles.colorSwatch}${open ? ` ${styles.colorSwatchOpen}` : ''}`}
+            className={`${styles.colorSwatch}${expanded ? ` ${styles.colorSwatchOpen}` : ''}`}
             style={swatchStyle}
             aria-label={`${label}, ${value}`}
             aria-haspopup="dialog"
-            aria-expanded={open}
+            aria-expanded={expanded}
             onClick={toggle}
           />
           <span className={styles.colorHex}>{value}</span>
@@ -102,10 +102,10 @@ export function ColorPicker({
         <button
           ref={triggerRef}
           type="button"
-          className={`${styles.colorChip}${open ? ` ${styles.colorChipOpen}` : ''}`}
+          className={`${styles.colorChip}${expanded ? ` ${styles.colorChipOpen}` : ''}`}
           aria-label={`${label}, ${value}`}
           aria-haspopup="dialog"
-          aria-expanded={open}
+          aria-expanded={expanded}
           onClick={toggle}
         >
           <span className={styles.colorChipDot} style={swatchStyle} aria-hidden />
@@ -123,46 +123,48 @@ export function ColorPicker({
               style={{ top: position.top, left: position.left, width: POPOVER_WIDTH }}
             >
               <div className={styles.colorPopoverGrid}>
-                {SUMMARY_SWATCHES.map((swatch) => (
+                {swatches.map((swatch) => (
                   <button
                     key={swatch}
                     type="button"
-                    className={styles.colorPopoverSwatch}
+                    className={`${styles.colorDot}${swatch === value ? ` ${styles.colorDotSelected}` : ''}`}
                     style={{ '--swatch': swatch } as CSSProperties}
-                    aria-label={swatch}
+                    aria-label={swatch.toUpperCase()}
                     aria-pressed={swatch === value}
-                    onClick={() => {
-                      onChange(swatch)
-                      setHexDraft(swatch)
-                    }}
-                  >
-                    {swatch === value ? <Check size={12} weight="bold" aria-hidden /> : null}
-                  </button>
+                    onClick={() => onChange(swatch)}
+                  />
                 ))}
               </div>
-              <input
-                className={`${styles.input} ${styles.colorPopoverInput}`}
-                value={hexDraft}
-                maxLength={7}
-                spellCheck={false}
-                aria-label={`${label} hex value`}
-                onChange={(event) => {
-                  setHexDraft(event.target.value)
-                  const hex = normalizeHex(event.target.value)
-                  if (hex && event.target.value.replace(/^#/, '').length === 6) onChange(hex)
-                }}
-                onBlur={commitHex}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter') return
-                  event.preventDefault()
-                  commitHex()
-                  setOpen(false)
-                }}
-              />
+              <div className={styles.colorCustomRow}>
+                <button
+                  type="button"
+                  className={styles.colorCustomBtn}
+                  onClick={() => {
+                    setOpen(false)
+                    setCustomOpen(true)
+                  }}
+                >
+                  <Plus size={16} weight="regular" aria-hidden />
+                  Add Custom Color
+                </button>
+              </div>
             </div>,
             document.body,
           )
         : null}
+      {customOpen ? (
+        <CustomColorPicker
+          value={value}
+          recentColor={recentColor}
+          anchorRef={triggerRef}
+          onCancel={closeCustom}
+          onApply={(next) => {
+            setRecentColor(value)
+            onChange(next)
+            closeCustom()
+          }}
+        />
+      ) : null}
     </>
   )
 }

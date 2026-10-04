@@ -2,7 +2,7 @@
  * Landing Story content type — Figma slide-landing-screen-map (3359:3802).
  * Full-page main content (not agent subcontext). Map from llumen-map-legend layers.
  */
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowLeft,
@@ -12,7 +12,6 @@ import {
   CalendarBlank,
   CaretDown,
   Check,
-  Columns,
   Copy,
   DotsThreeVertical,
   Export,
@@ -38,6 +37,7 @@ import {
   SquaresFour,
   Trash,
   X,
+  type IconProps,
 } from '@phosphor-icons/react'
 import { llumenAssets } from '../assets'
 import { ShareModal } from '../ShareModal'
@@ -54,6 +54,7 @@ import {
   warpPath,
 } from './StoryCharts'
 import { StoryCardConfigModal } from './StoryCardConfigModal'
+import { SplitIcon } from './StorySplitIcon'
 import { DEFAULT_CHART_KPI, resolveKpi, type ChartCardId, type ChartKpiConfig } from './storyKpi'
 import { StorySummaryConfigModal } from './StorySummaryConfigModal'
 import {
@@ -76,6 +77,9 @@ import {
   type StorySlide,
 } from './storyDemoData'
 import { StoryMap, STORY_MAP_STYLE, type StoryMapLayerVisibility } from './StoryMap'
+import type { StoryBackground } from './storyBackground'
+import { StoryBackgroundLayer } from './StoryBackgroundLayer'
+import { BackgroundSettings } from './StoryBackgroundSettings'
 import { sceneAtPhase, storySceneAt, type ColumnGlyphColors } from './storyDemoScenes'
 import { StoryTimeSeries } from './StoryTimeSeries'
 import {
@@ -120,10 +124,10 @@ function filterIcon(id: string) {
 
 type StoryViewLayout = 'sidebar' | 'grid' | 'comparison'
 
-const VIEW_LAYOUTS: { id: StoryViewLayout; label: string; icon: typeof Sidebar }[] = [
+const VIEW_LAYOUTS: { id: StoryViewLayout; label: string; icon: ComponentType<IconProps> }[] = [
   { id: 'sidebar', label: 'Sidebar', icon: Sidebar },
   { id: 'grid', label: 'Grid', icon: GridFour },
-  { id: 'comparison', label: 'Comparison', icon: Columns },
+  { id: 'comparison', label: 'Comparison', icon: SplitIcon },
 ]
 
 const LAYOUT_MENU_WIDTH = 200
@@ -210,6 +214,19 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     distribution: true,
   })
   const [mapStyle, setMapStyle] = useState({ id: 'aimsun-teal', url: STORY_MAP_STYLE })
+  const [background, setBackground] = useState<StoryBackground>({
+    kind: 'basemap',
+    id: 'aimsun-teal',
+    url: STORY_MAP_STYLE,
+  })
+  const backgroundPanelTitle =
+    background.kind === 'basemap'
+      ? 'Map Data'
+      : background.kind === 'color'
+        ? 'Color Background'
+        : background.mediaType === 'video'
+          ? 'Video Background'
+          : 'Image Background'
   const [timelineBySlide, setTimelineBySlide] = useState<Record<string, SlideTimeline>>({})
   const [timelinePlaying, setTimelinePlaying] = useState(false)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
@@ -614,6 +631,16 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         frameLinear={timelinePlaying}
         styleUrl={mapStyle.url}
       />
+      {background.kind !== 'basemap' ? (
+        <StoryBackgroundLayer
+          background={background}
+          onDuration={(duration) =>
+            setBackground((current) =>
+              current.kind === 'media' && current.duration !== duration ? { ...current, duration } : current,
+            )
+          }
+        />
+      ) : null}
 
       <div className={styles.overlay}>
         <header className={styles.header} dir={presentationSettings.textDirection}>
@@ -914,7 +941,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               setEditSection(null)
             }}
             mapStyleId={mapStyle.id}
-            onMapStyleChange={setMapStyle}
+            background={background}
+            onBackgroundChange={(next) => {
+              setBackground(next)
+              if (next.kind === 'basemap') setMapStyle({ id: next.id, url: next.url })
+            }}
             onAddCharts={(chartIds) => {
               chartIds.forEach((chartId) => {
                 const cardId = CHART_CARD_BY_ASSET[chartId]
@@ -941,10 +972,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             }
             onRangeChange={(rangeId) => updateTimeline(slide.id, (current) => withRange(current, rangeId))}
           />
+          {background.kind === 'basemap' || storyMode === 'edit' ? (
           <div className={styles.mapData}>
             {storyMode === 'edit' ? (
               <div className={`${styles.mapDataHeader} ${styles.mapDataHeaderEdit}`}>
-                <span>Map Data</span>
+                <span>{backgroundPanelTitle}</span>
                 <button
                   type="button"
                   className={`${styles.mapDataBackgroundBtn}${editSection === 'map' ? ` ${styles.mapDataBackgroundBtnActive}` : ''}`}
@@ -971,7 +1003,13 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 />
               </button>
             )}
-            {legendOpen || storyMode === 'edit' ? (
+            {background.kind !== 'basemap' ? (
+              <BackgroundSettings
+                background={background}
+                onChange={setBackground}
+                onReplace={() => toggleSection('map')}
+              />
+            ) : legendOpen || storyMode === 'edit' ? (
               <div className={styles.mapDataBody}>
                 <div className={styles.legendGroup}>
                   <div className={styles.legendHead}>
@@ -1072,6 +1110,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               </div>
             ) : null}
           </div>
+          ) : null}
         </div>
 
         <div className={styles.lowerNav} aria-label="Story navigation">

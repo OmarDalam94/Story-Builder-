@@ -7,6 +7,7 @@ import {
   CaretDown,
   AppWindow,
   ChartLine,
+  Check,
   Circle,
   Copy,
   DotsThreeVertical,
@@ -27,7 +28,9 @@ import {
   Table,
   TextB,
   TextT,
+  Play,
   Trash,
+  UploadSimple,
   VideoCamera,
   WaveSine,
   X,
@@ -35,6 +38,21 @@ import {
 import { storyThumbLayers, landingAssets } from '../landing/landingAssets'
 import { STORY_CHARTS, StoryChartPreview } from './StoryCharts'
 import { STORY_MAP_STYLE } from './StoryMap'
+import {
+  BACKGROUND_COLOR_GROUPS,
+  BACKGROUND_COLORS,
+  BACKGROUND_MEDIA_PRESETS,
+  BACKGROUND_MEDIA_TYPES,
+  BACKGROUND_TABS,
+  DEFAULT_BACKGROUND_COLOR,
+  colorBackground,
+  mediaBackground,
+  type BackgroundMediaSource,
+  type BackgroundMediaType,
+  type BackgroundTab,
+  type StoryBackground,
+} from './storyBackground'
+import { InlineColorPicker } from './StoryCustomColorPicker'
 import type { StoryChapter, StoryFilter, StorySlide } from './storyDemoData'
 import styles from './StoryEditPanel.module.css'
 
@@ -67,7 +85,8 @@ export type StoryEditPanelProps = {
   /** Opens the slide editor directly, with no return to the slides list. */
   directSlideEditor?: boolean
   mapStyleId: string
-  onMapStyleChange: (style: { id: string; url: string }) => void
+  background: StoryBackground
+  onBackgroundChange: (background: StoryBackground) => void
   /** Places the picked charts (STORY_CHARTS ids) into the slide's grid. */
   onAddCharts?: (chartIds: string[]) => void
   section: StoryEditSection
@@ -105,7 +124,8 @@ export function StoryEditPanel({
   onClose,
   directSlideEditor = false,
   mapStyleId,
-  onMapStyleChange,
+  background,
+  onBackgroundChange,
   onAddCharts,
   section,
 }: StoryEditPanelProps) {
@@ -270,10 +290,11 @@ export function StoryEditPanel({
       </header>
 
       {section === 'map' ? (
-        <MapStylePicker
-          appliedStyleId={mapStyleId}
-          onApply={(style) => {
-            onMapStyleChange(style)
+        <BackgroundPicker
+          background={background}
+          basemapId={mapStyleId}
+          onApply={(next) => {
+            onBackgroundChange(next)
             onClose()
           }}
           onCancel={onClose}
@@ -1454,29 +1475,29 @@ function SlidesOverview({
 const MAP_STYLE_OPTIONS = [
   {
     id: 'aimsun-teal',
-    name: 'Aimsun Teal',
-    description: 'Aimsun teal map style',
+    name: 'Llumen Teal',
+    description: 'Llumen teal map style',
     url: STORY_MAP_STYLE,
     image: landingAssets.mapStyleAimsunTeal,
   },
   {
     id: 'aimsun-base',
-    name: 'Aimsun Base',
-    description: 'Aimsun base map style',
+    name: 'Llumen Base',
+    description: 'Llumen base map style',
     url: 'mapbox://styles/mapbox/dark-v11',
     image: landingAssets.mapStyleAimsunBase,
   },
   {
     id: 'aimsun-default',
-    name: 'Aimsun Default',
-    description: 'Aimsun default dark map style',
+    name: 'Llumen Default',
+    description: 'Llumen default dark map style',
     url: 'mapbox://styles/mapbox/navigation-night-v1',
     image: landingAssets.mapStyleAimsunDefault,
   },
   {
     id: 'aimsun-light',
-    name: 'Aimsun Light',
-    description: 'Aimsun light map style',
+    name: 'Llumen Light',
+    description: 'Llumen light map style',
     url: 'mapbox://styles/mapbox/light-v11',
     image: landingAssets.mapStyleAimsunLight,
   },
@@ -1494,22 +1515,49 @@ const MAP_STYLE_OPTIONS = [
   },
 ] as const
 
-function MapStylePicker({
-  appliedStyleId,
+function BackgroundPicker({
+  background,
+  basemapId,
   onApply,
   onCancel,
 }: {
-  appliedStyleId: string
-  onApply: (style: { id: string; url: string }) => void
+  background: StoryBackground
+  basemapId: string
+  onApply: (background: StoryBackground) => void
   onCancel: () => void
 }) {
+  const [tab, setTab] = useState<BackgroundTab>(background.kind)
   const [stylesList, setStylesList] = useState<
     { id: string; name: string; description: string; url?: string; image?: string }[]
   >([...MAP_STYLE_OPTIONS])
-  const [selectedId, setSelectedId] = useState(appliedStyleId)
+  const [selectedId, setSelectedId] = useState(basemapId)
   const [customOpen, setCustomOpen] = useState(false)
   const [customUrl, setCustomUrl] = useState('')
+  const [mediaType, setMediaType] = useState<BackgroundMediaType>(
+    background.kind === 'media' ? background.mediaType : 'image',
+  )
+  const [pickedMedia, setPickedMedia] = useState<Partial<Record<BackgroundMediaType, BackgroundMediaSource>>>(
+    background.kind === 'media' ? { [background.mediaType]: background } : {},
+  )
+  const [uploadedMedia, setUploadedMedia] = useState<Partial<Record<BackgroundMediaType, BackgroundMediaSource>>>(
+    background.kind === 'media' &&
+      !BACKGROUND_MEDIA_PRESETS[background.mediaType].some((preset) => preset.src === background.src)
+      ? { [background.mediaType]: background }
+      : {},
+  )
+  const [dragging, setDragging] = useState(false)
+  const [color, setColor] = useState(background.kind === 'color' ? background.color : DEFAULT_BACKGROUND_COLOR)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const selected = stylesList.find((style) => style.id === selectedId)
+  const mediaOption = BACKGROUND_MEDIA_TYPES.find((item) => item.id === mediaType) ?? BACKGROUND_MEDIA_TYPES[0]
+  const mediaPresets = BACKGROUND_MEDIA_PRESETS[mediaType]
+  const mediaReady = pickedMedia[mediaType] ?? mediaPresets[0]
+  const uploaded = uploadedMedia[mediaType]
+  const mediaOptions: (BackgroundMediaSource & { thumb?: string })[] = uploaded
+    ? [...mediaPresets, uploaded]
+    : mediaPresets
+  const pickMedia = (source: BackgroundMediaSource) =>
+    setPickedMedia((current) => ({ ...current, [source.mediaType]: source }))
 
   const addCustomStyle = () => {
     const url = customUrl.trim()
@@ -1524,8 +1572,201 @@ function MapStylePicker({
     setCustomOpen(false)
   }
 
+  const pickFile = (file: File | undefined) => {
+    if (!file) return
+    const type: BackgroundMediaType | null = file.type.startsWith('video/')
+      ? 'video'
+      : file.type.startsWith('image/')
+        ? 'image'
+        : null
+    if (!type) return
+    const source = { mediaType: type, src: URL.createObjectURL(file), name: file.name }
+    setMediaType(type)
+    pickMedia(source)
+    setUploadedMedia((current) => ({ ...current, [type]: source }))
+  }
+
+  const isCustomColor = !BACKGROUND_COLORS.includes(color)
+  const canApply =
+    tab === 'basemap' ? Boolean(selected?.url) : tab === 'media' ? true : Boolean(color)
+
+  const apply = () => {
+    if (tab === 'basemap') {
+      if (!selected?.url) return
+      onApply({ kind: 'basemap', id: selected.id, url: selected.url })
+    } else if (tab === 'media') {
+      onApply(
+        background.kind === 'media' && background.src === mediaReady.src
+          ? background
+          : mediaBackground({ mediaType: mediaReady.mediaType, src: mediaReady.src, name: mediaReady.name }),
+      )
+    } else {
+      onApply(
+        background.kind === 'color' && background.color === color
+          ? background
+          : colorBackground(color, background.kind === 'color' ? background : undefined),
+      )
+    }
+  }
+
   return (
     <div className={styles.mapStyleBody}>
+      <div className={`${styles.toolsTabs} ${styles.backgroundTabs}`} role="tablist" aria-label="Background types">
+        {BACKGROUND_TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            className={`${styles.toolsTab}${tab === item.id ? ` ${styles.toolsTabActive}` : ''}`}
+            aria-selected={tab === item.id}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'media' ? (
+        <>
+          <div className={styles.mapStyleIntro}>
+            <p className={styles.mapStyleHint}>Use an image or a video as your slide&apos;s background</p>
+            <div className={`${styles.segmentedControl} ${styles.backgroundMediaSwitch}`} role="radiogroup" aria-label="Media type">
+              {BACKGROUND_MEDIA_TYPES.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={mediaType === item.id}
+                  className={`${styles.segmentedBtn}${mediaType === item.id ? ` ${styles.segmentedBtnActive}` : ''}`}
+                  onClick={() => setMediaType(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className={`${styles.mapStyleStage} ${styles.backgroundMediaStage}`}>
+            <input
+              ref={fileInputRef}
+              className={styles.fileInput}
+              type="file"
+              accept={mediaOption.accept}
+              aria-label={`Upload ${mediaOption.label.toLowerCase()}`}
+              onChange={(event) => {
+                pickFile(event.target.files?.[0])
+                event.target.value = ''
+              }}
+            />
+            <button
+              type="button"
+              className={`${styles.backgroundDrop} ${styles.backgroundDropFilled} ${styles.backgroundDropCompact}${
+                dragging ? ` ${styles.backgroundDropActive}` : ''
+              }`}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(event) => {
+                event.preventDefault()
+                setDragging(true)
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(event) => {
+                event.preventDefault()
+                setDragging(false)
+                pickFile(event.dataTransfer.files?.[0])
+              }}
+            >
+              {mediaReady.mediaType === 'video' ? (
+                <video className={styles.backgroundDropMedia} src={mediaReady.src} autoPlay muted loop playsInline />
+              ) : (
+                <img className={styles.backgroundDropMedia} src={mediaReady.src} alt="" />
+              )}
+              <span className={styles.backgroundDropCaption}>
+                <span className={styles.mapStyleCardName}>{mediaReady.name}</span>
+                <span className={styles.mapStyleCardDesc}>Click or drop a file to replace</span>
+              </span>
+            </button>
+            <div
+              className={styles.backgroundImageRow}
+              role="radiogroup"
+              aria-label={mediaType === 'video' ? 'Background videos' : 'Background images'}
+            >
+              {mediaOptions.map((option) => (
+                <button
+                  key={option.src}
+                  type="button"
+                  role="radio"
+                  aria-checked={mediaReady.src === option.src}
+                  aria-label={option.name}
+                  title={option.name}
+                  className={`${styles.backgroundImageTile}${
+                    mediaReady.src === option.src ? ` ${styles.backgroundImageTileActive}` : ''
+                  }`}
+                  onClick={() => pickMedia(option)}
+                >
+                  {option.thumb || option.mediaType === 'image' ? (
+                    <img src={option.thumb ?? option.src} alt="" loading="lazy" />
+                  ) : (
+                    <video src={option.src} muted playsInline preload="metadata" />
+                  )}
+                  {option.mediaType === 'video' ? (
+                    <span className={styles.backgroundImagePlay} aria-hidden>
+                      <Play size={10} weight="fill" />
+                    </span>
+                  ) : null}
+                  {mediaReady.src === option.src ? (
+                    <span className={styles.backgroundImageCheck} aria-hidden>
+                      <Check size={12} weight="bold" />
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={`${styles.backgroundImageTile} ${styles.backgroundImageUpload}`}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <UploadSimple size={18} weight="regular" aria-hidden />
+                <span>Upload</span>
+              </button>
+            </div>
+          </div>
+        </>
+      ) : tab === 'color' ? (
+        <>
+          <div className={styles.mapStyleIntro}>
+            <p className={styles.mapStyleHint}>Pick a solid color for your slide&apos;s background</p>
+          </div>
+          <div className={styles.mapStyleStage}>
+            <div className={styles.backgroundColorLayout}>
+              <div className={styles.backgroundSwatchField}>
+                {(isCustomColor
+                  ? [...BACKGROUND_COLOR_GROUPS, { id: 'custom', label: 'Custom', colors: [color] }]
+                  : BACKGROUND_COLOR_GROUPS
+                ).map((group) => (
+                  <div key={group.id} className={styles.backgroundSwatchGroup} role="group" aria-label={group.label}>
+                    <span className={styles.backgroundSwatchGroupLabel}>{group.label}</span>
+                    <div className={styles.backgroundColorGrid}>
+                      {group.colors.map((swatch) => (
+                        <button
+                          key={swatch}
+                          type="button"
+                          className={`${styles.colorDot}${swatch === color ? ` ${styles.colorDotSelected}` : ''}`}
+                          style={{ '--swatch': swatch } as CSSProperties}
+                          aria-label={`${group.label} ${swatch.toUpperCase()}`}
+                          aria-pressed={swatch === color}
+                          onClick={() => setColor(swatch)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className={styles.backgroundColorCustom}>
+                <InlineColorPicker title="Custom color" value={color} onChange={setColor} />
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+      <>
       <div className={styles.mapStyleIntro}>
         <p className={styles.mapStyleHint}>Select a map style for your slides&apos;s background</p>
         <button type="button" className={styles.addBtn} onClick={() => setCustomOpen((open) => !open)}>
@@ -1582,20 +1823,14 @@ function MapStylePicker({
           ))}
         </div>
       </div>
+      </>
+      )}
       <footer className={styles.mapStyleFooter}>
         <button type="button" className={styles.secondaryBtn} onClick={onCancel}>
           Cancel
         </button>
-        <button
-          type="button"
-          className={styles.assetsNext}
-          disabled={!selected?.url}
-          onClick={() => {
-            if (!selected?.url) return
-            onApply({ id: selected.id, url: selected.url })
-          }}
-        >
-          Apply Style
+        <button type="button" className={styles.assetsNext} disabled={!canApply} onClick={apply}>
+          Apply Background
         </button>
       </footer>
     </div>
