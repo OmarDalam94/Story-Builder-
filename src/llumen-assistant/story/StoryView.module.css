@@ -435,6 +435,125 @@
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
 }
 
+/* Grid layout: full-width grid of square cells; cards wrap across rows, 2 cells each. */
+.bodyGrid {
+  position: relative;
+  z-index: 6;
+  align-items: stretch;
+  padding: var(--grid-inset-top) var(--grid-inset-x) 0;
+}
+
+/* Basemap under the grid layout: frosted so the grid reads first. */
+.mapBlur {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(3, 12, 18, 0.3);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: none;
+  animation: gridCellEnter 240ms ease both;
+}
+
+/* The grid covers Map Data; hide it so it doesn't show through the cell gaps. */
+.mapStackUnderGrid {
+  visibility: hidden;
+}
+
+/* Grid layout lifts the time series above the grid, bottom-aligned with the toolbar. */
+.timelineDock {
+  position: absolute;
+  right: 20px;
+  bottom: 18px;
+  z-index: 7;
+  width: 300px;
+  pointer-events: auto;
+}
+
+.insightLayoutGrid {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  display: grid;
+  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--grid-rows), var(--grid-cell));
+  grid-auto-rows: var(--grid-cell);
+  align-content: start;
+  gap: var(--grid-gap);
+  padding: 0 0 var(--grid-inset-bottom);
+  overflow-y: auto;
+  pointer-events: none;
+}
+
+.insightLayoutGridEditing {
+  pointer-events: auto;
+}
+
+.insightLayoutGrid > section {
+  grid-column: span var(--grid-card-span);
+  height: auto;
+  pointer-events: auto;
+}
+
+/* Floats over the grid, centered 12px above the bottom toolbar (18px offset + 44px tall). */
+.gridColumnsControl {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  z-index: 7;
+  transform: translateX(-50%);
+  box-shadow:
+    0 12px 16px -4px rgba(10, 13, 18, 0.24),
+    0 4px 6px -2px rgba(10, 13, 18, 0.16);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(26, 26, 26, 0.5);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  pointer-events: auto;
+}
+
+.gridColumnsIcon {
+  margin: 0 8px;
+  color: rgba(255, 255, 255, 0.56);
+}
+
+.gridColumnsOption {
+  min-width: 40px;
+  height: 32px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.gridColumnsOption:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.gridColumnsOptionActive,
+.gridColumnsOptionActive:hover {
+  background: #70aeff;
+  color: #0c0e10;
+}
+
+.gridColumnsOption:focus-visible {
+  outline: 2px solid #70aeff;
+  outline-offset: 1px;
+}
+
 .summaryCard,
 .visualCard {
   box-sizing: border-box;

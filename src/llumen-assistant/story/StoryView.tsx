@@ -138,6 +138,21 @@ const INSIGHT_CARD_IDS = ['summary', 'emissions', 'groundwater', 'biodiversity',
 /** Edit-mode grid: one row per visual plus 3 empty rows; each row holds 2 cells. */
 const GRID_ROWS = INSIGHT_CARD_IDS.length + 3
 
+/**
+ * Grid layout spans the full page width with square cells. At 12 columns a cell is about the
+ * sidebar edit-grid cell (184px); fewer columns grow the cells. Each card spans 2 cells.
+ */
+const GRID_COLUMN_OPTIONS = [4, 6, 8, 12] as const
+type GridColumns = (typeof GRID_COLUMN_OPTIONS)[number]
+const DEFAULT_GRID_COLUMNS: GridColumns = 8
+const GRID_CELL_SIZE = 184
+const GRID_CELL_GAP = 12
+const GRID_CARD_SPAN = 2
+/** Space kept clear around the grid: sides, top, and the floating width control above the toolbar. */
+const GRID_INSET_X = 20
+const GRID_INSET_TOP = 20
+const GRID_INSET_BOTTOM = 128
+
 const CHART_CARD_BY_ASSET: Record<string, ChartCardId> = {
   'chart-emissions': 'emissions',
   'chart-groundwater': 'groundwater',
@@ -242,6 +257,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const [cardConfig, setCardConfig] = useState<{ slideId: string; cardId: InsightCardId } | null>(null)
   const [regeneratingSlideId, setRegeneratingSlideId] = useState<string | null>(null)
   const [layoutBySlide, setLayoutBySlide] = useState<Record<string, StoryViewLayout>>({})
+  const [gridColumnsBySlide, setGridColumnsBySlide] = useState<Record<string, GridColumns>>({})
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false)
   const [layoutMenuPos, setLayoutMenuPos] = useState({ top: 0, left: 0 })
   const layoutMenuRef = useRef<HTMLButtonElement>(null)
@@ -319,6 +335,29 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const viewLayout = layoutBySlide[slide.id] ?? 'sidebar'
   const placedCards = INSIGHT_CARD_IDS.filter((id) => !cardPrefs[id]?.deleted).length
   const emptyGridCells = (GRID_ROWS - placedCards) * 2
+
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const [bodySize, setBodySize] = useState({ width: 0, height: 0 })
+  const gridColumns = gridColumnsBySlide[slide.id] ?? DEFAULT_GRID_COLUMNS
+  const gridWidth = bodySize.width - 2 * GRID_INSET_X
+  const gridCell =
+    gridWidth > 0 ? (gridWidth - (gridColumns - 1) * GRID_CELL_GAP) / gridColumns : GRID_CELL_SIZE
+  const gridRows = Math.max(
+    1,
+    Math.ceil((placedCards * GRID_CARD_SPAN) / gridColumns),
+    Math.ceil((bodySize.height - GRID_INSET_TOP + GRID_CELL_GAP) / (gridCell + GRID_CELL_GAP)),
+  )
+  const gridLayoutEmptyCells = Math.max(0, gridColumns * gridRows - placedCards * GRID_CARD_SPAN)
+
+  useEffect(() => {
+    const body = bodyRef.current
+    if (viewLayout !== 'grid' || !body) return
+    const observer = new ResizeObserver(() =>
+      setBodySize({ width: body.clientWidth, height: body.clientHeight }),
+    )
+    observer.observe(body)
+    return () => observer.disconnect()
+  }, [viewLayout])
 
   useEffect(() => {
     if (!regeneratingSlideId) return
@@ -620,6 +659,102 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     return () => window.clearInterval(timer)
   }, [autoplaying, presentationSettings.autoplay, presentationSettings.multiSlide, slides.length])
 
+  const timeSeries = (
+    <StoryTimeSeries
+      range={timelineRange}
+      granularity={timelineGranularity}
+      frameCount={frameCount}
+      frame={timeline.frame}
+      playing={timelinePlaying}
+      speed={playbackSpeed}
+      stepMs={frameStepMs}
+      onFrameChange={(frame) => updateTimeline(slide.id, (current) => ({ ...current, frame }))}
+      onPlayingChange={setTimelinePlaying}
+      onSpeedChange={setPlaybackSpeed}
+      onGranularityChange={(granularityId) =>
+        updateTimeline(slide.id, (current) => withGranularity(current, granularityId))
+      }
+      onRangeChange={(rangeId) => updateTimeline(slide.id, (current) => withRange(current, rangeId))}
+    />
+  )
+
+  const insightCards = (
+    <>
+      {insightCard(
+        'summary',
+        [
+          styles.summaryCard,
+          gradientStyles.gradientBorder,
+          regeneratingSlideId === slide.id ? styles.summaryRegenerating : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
+        'Executive Summary',
+        <>
+          <h2 className={styles.summaryTitle}>Executive Summary</h2>
+          <p className={styles.summaryBody}>
+            Key Performance Indicators (KPIs) are the{' '}
+            <em className={styles.summaryEmphasis}>critical navigational instruments</em> that
+            organizations rely upon to understand whether they are on course to reach their
+            strategic objectives or whether adjustments need to be made along the way. At their
+            core, KPIs translate complex business operations into{' '}
+            <em className={styles.summaryEmphasis}>quantifiable metrics</em> that leaders,
+            managers, and individual contributors can use to assess progress, identify trends,
+            and make informed decisions. Without well-defined KPIs, organizations operate in a
+            fog — they may have a general sense of direction, but they lack the precision needed
+            to steer effectively through competitive markets and rapidly changing environments.
+          </p>
+        </>,
+        {
+          ...gradientVars(summaryConfig.gradient),
+          '--summary-accent': summaryConfig.accent,
+        } as CSSProperties,
+      )}
+      {insightCard(
+        'emissions',
+        styles.visualCard,
+        'Emissions trajectory',
+        <EmissionsChart
+          yLabels={insight.emissionsLabels}
+          line={emissionsLine}
+          kpi={chartKpi('emissions')}
+        />,
+      )}
+      {insightCard(
+        'groundwater',
+        styles.visualCard,
+        'Groundwater level',
+        <GroundwaterChart
+          value={insight.groundwaterValue}
+          line={groundwaterLine}
+          kpi={chartKpi('groundwater')}
+        />,
+      )}
+      {insightCard(
+        'biodiversity',
+        styles.visualCard,
+        'Biodiversity activity',
+        <BiodiversityChart
+          terrestrial={insight.terrestrial}
+          marine={insight.marine}
+          kpi={chartKpi('biodiversity')}
+        />,
+      )}
+      {insightCard(
+        'sites',
+        styles.visualCard,
+        'Monitoring sites',
+        <MonitoringSitesChart
+          online={insight.online}
+          sites={insight.sites}
+          uptime={insight.uptime}
+          offlineBars={insight.offlineBars}
+          kpi={chartKpi('sites')}
+        />,
+      )}
+    </>
+  )
+
   return (
     <div className={styles.root} aria-label={`${story.storyTitle} story`}>
       <StoryMap
@@ -640,6 +775,9 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             )
           }
         />
+      ) : null}
+      {background.kind === 'basemap' && viewLayout === 'grid' ? (
+        <div className={styles.mapBlur} aria-hidden />
       ) : null}
 
       <div className={styles.overlay}>
@@ -745,101 +883,68 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         </header>
 
         <div
-          className={`${styles.body}${slide.focusLayout ? ` ${styles.bodyFocus}` : ''}`}
+          ref={bodyRef}
+          className={[
+            styles.body,
+            viewLayout === 'grid' ? styles.bodyGrid : slide.focusLayout ? styles.bodyFocus : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          style={
+            viewLayout === 'grid'
+              ? ({
+                  '--grid-inset-x': `${GRID_INSET_X}px`,
+                  '--grid-inset-top': `${GRID_INSET_TOP}px`,
+                  '--grid-inset-bottom': `${GRID_INSET_BOTTOM}px`,
+                } as CSSProperties)
+              : undefined
+          }
           dir={presentationSettings.textDirection}
         >
-          <aside
-            className={[
-              styles.insight,
-              slide.layout === 'full-width' ? styles.insightFullWidth : '',
-              slide.layout === 'sidebar' && slide.sidebarWidth === 'small'
-                ? styles.insightSmall
-                : '',
-              slide.focusLayout ? styles.insightFocus : '',
-              storyMode === 'edit' ? styles.insightGrid : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            aria-label="Story insight"
-          >
-            {insightCard(
-              'summary',
-              [
-                styles.summaryCard,
-                gradientStyles.gradientBorder,
-                regeneratingSlideId === slide.id ? styles.summaryRegenerating : '',
+          {viewLayout === 'grid' ? (
+            <aside
+              className={`${styles.insight} ${styles.insightLayoutGrid}${storyMode === 'edit' ? ` ${styles.insightLayoutGridEditing}` : ''}`}
+              style={
+                {
+                  '--grid-columns': gridColumns,
+                  '--grid-rows': gridRows,
+                  '--grid-cell': `${gridCell}px`,
+                  '--grid-gap': `${GRID_CELL_GAP}px`,
+                  '--grid-card-span': GRID_CARD_SPAN,
+                } as CSSProperties
+              }
+              aria-label="Story insight"
+            >
+              {insightCards}
+              {storyMode === 'edit'
+                ? Array.from({ length: gridLayoutEmptyCells }, (_, index) => (
+                    <div key={`cell-${index}`} className={styles.gridCell} aria-hidden />
+                  ))
+                : null}
+            </aside>
+          ) : (
+            <aside
+              className={[
+                styles.insight,
+                slide.layout === 'full-width' ? styles.insightFullWidth : '',
+                slide.layout === 'sidebar' && slide.sidebarWidth === 'small'
+                  ? styles.insightSmall
+                  : '',
+                slide.focusLayout ? styles.insightFocus : '',
+                storyMode === 'edit' ? styles.insightGrid : '',
               ]
                 .filter(Boolean)
-                .join(' '),
-              'Executive Summary',
-              <>
-                <h2 className={styles.summaryTitle}>Executive Summary</h2>
-                <p className={styles.summaryBody}>
-                  Key Performance Indicators (KPIs) are the{' '}
-                  <em className={styles.summaryEmphasis}>critical navigational instruments</em> that
-                  organizations rely upon to understand whether they are on course to reach their
-                  strategic objectives or whether adjustments need to be made along the way. At their
-                  core, KPIs translate complex business operations into{' '}
-                  <em className={styles.summaryEmphasis}>quantifiable metrics</em> that leaders,
-                  managers, and individual contributors can use to assess progress, identify trends,
-                  and make informed decisions. Without well-defined KPIs, organizations operate in a
-                  fog — they may have a general sense of direction, but they lack the precision needed
-                  to steer effectively through competitive markets and rapidly changing environments.
-                </p>
-              </>,
-              {
-                ...gradientVars(summaryConfig.gradient),
-                '--summary-accent': summaryConfig.accent,
-              } as CSSProperties,
-            )}
-            {insightCard(
-              'emissions',
-              styles.visualCard,
-              'Emissions trajectory',
-              <EmissionsChart
-                yLabels={insight.emissionsLabels}
-                line={emissionsLine}
-                kpi={chartKpi('emissions')}
-              />,
-            )}
-            {insightCard(
-              'groundwater',
-              styles.visualCard,
-              'Groundwater level',
-              <GroundwaterChart
-                value={insight.groundwaterValue}
-                line={groundwaterLine}
-                kpi={chartKpi('groundwater')}
-              />,
-            )}
-            {insightCard(
-              'biodiversity',
-              styles.visualCard,
-              'Biodiversity activity',
-              <BiodiversityChart
-                terrestrial={insight.terrestrial}
-                marine={insight.marine}
-                kpi={chartKpi('biodiversity')}
-              />,
-            )}
-            {insightCard(
-              'sites',
-              styles.visualCard,
-              'Monitoring sites',
-              <MonitoringSitesChart
-                online={insight.online}
-                sites={insight.sites}
-                uptime={insight.uptime}
-                offlineBars={insight.offlineBars}
-                kpi={chartKpi('sites')}
-              />,
-            )}
-            {storyMode === 'edit'
-              ? Array.from({ length: emptyGridCells }, (_, index) => (
-                  <div key={`cell-${index}`} className={styles.gridCell} aria-hidden />
-                ))
-              : null}
-          </aside>
+                .join(' ')}
+              aria-label="Story insight"
+            >
+              {insightCards}
+              {storyMode === 'edit'
+                ? Array.from({ length: emptyGridCells }, (_, index) => (
+                    <div key={`cell-${index}`} className={styles.gridCell} aria-hidden />
+                  ))
+                : null}
+            </aside>
+          )}
         </div>
 
         {editSection ? (
@@ -955,23 +1060,32 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           />
         ) : null}
 
-        <div className={styles.mapStack}>
-          <StoryTimeSeries
-            range={timelineRange}
-            granularity={timelineGranularity}
-            frameCount={frameCount}
-            frame={timeline.frame}
-            playing={timelinePlaying}
-            speed={playbackSpeed}
-            stepMs={frameStepMs}
-            onFrameChange={(frame) => updateTimeline(slide.id, (current) => ({ ...current, frame }))}
-            onPlayingChange={setTimelinePlaying}
-            onSpeedChange={setPlaybackSpeed}
-            onGranularityChange={(granularityId) =>
-              updateTimeline(slide.id, (current) => withGranularity(current, granularityId))
-            }
-            onRangeChange={(rangeId) => updateTimeline(slide.id, (current) => withRange(current, rangeId))}
-          />
+        {viewLayout === 'grid' ? <div className={styles.timelineDock}>{timeSeries}</div> : null}
+
+        {storyMode === 'edit' && viewLayout === 'grid' ? (
+          <div className={styles.gridColumnsControl} role="radiogroup" aria-label="Grid width">
+            <GridFour className={styles.gridColumnsIcon} size={18} weight="regular" aria-hidden />
+            {GRID_COLUMN_OPTIONS.map((columns) => (
+              <button
+                key={columns}
+                type="button"
+                role="radio"
+                aria-checked={gridColumns === columns}
+                aria-label={`${columns} columns`}
+                className={`${styles.gridColumnsOption}${gridColumns === columns ? ` ${styles.gridColumnsOptionActive}` : ''}`}
+                onClick={() => setGridColumnsBySlide((current) => ({ ...current, [slide.id]: columns }))}
+              >
+                {columns}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div
+          className={`${styles.mapStack}${viewLayout === 'grid' ? ` ${styles.mapStackUnderGrid}` : ''}`}
+          aria-hidden={viewLayout === 'grid' || undefined}
+        >
+          {viewLayout === 'grid' ? null : timeSeries}
           {background.kind === 'basemap' || storyMode === 'edit' ? (
           <div className={styles.mapData}>
             {storyMode === 'edit' ? (
