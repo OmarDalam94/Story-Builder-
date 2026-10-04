@@ -11,6 +11,8 @@ import {
   Buildings,
   CalendarBlank,
   CaretDown,
+  Check,
+  Columns,
   Copy,
   DotsThreeVertical,
   Export,
@@ -18,8 +20,10 @@ import {
   EyeSlash,
   GearSix,
   GenderIntersex,
+  GridFour,
   IdentificationCard,
   Info,
+  Layout,
   List,
   MapPin,
   MapTrifold,
@@ -29,6 +33,7 @@ import {
   Play,
   Plus,
   Selection,
+  Sidebar,
   Student,
   SquaresFour,
   Trash,
@@ -111,6 +116,29 @@ function filterIcon(id: string) {
     default:
       return <SquaresFour size={18} weight="regular" aria-hidden />
   }
+}
+
+type StoryViewLayout = 'sidebar' | 'grid' | 'comparison'
+
+const VIEW_LAYOUTS: { id: StoryViewLayout; label: string; icon: typeof Sidebar }[] = [
+  { id: 'sidebar', label: 'Sidebar', icon: Sidebar },
+  { id: 'grid', label: 'Grid', icon: GridFour },
+  { id: 'comparison', label: 'Comparison', icon: Columns },
+]
+
+const LAYOUT_MENU_WIDTH = 200
+const LAYOUT_MENU_HEIGHT = 132
+
+const INSIGHT_CARD_IDS = ['summary', 'emissions', 'groundwater', 'biodiversity', 'sites'] as const
+
+/** Edit-mode grid: one row per visual plus 3 empty rows; each row holds 2 cells. */
+const GRID_ROWS = INSIGHT_CARD_IDS.length + 3
+
+const CHART_CARD_BY_ASSET: Record<string, ChartCardId> = {
+  'chart-emissions': 'emissions',
+  'chart-groundwater': 'groundwater',
+  'chart-biodiversity': 'biodiversity',
+  'chart-sites': 'sites',
 }
 
 type InsightCardId = 'summary' | ChartCardId
@@ -196,6 +224,10 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   } | null>(null)
   const [cardConfig, setCardConfig] = useState<{ slideId: string; cardId: InsightCardId } | null>(null)
   const [regeneratingSlideId, setRegeneratingSlideId] = useState<string | null>(null)
+  const [layoutBySlide, setLayoutBySlide] = useState<Record<string, StoryViewLayout>>({})
+  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false)
+  const [layoutMenuPos, setLayoutMenuPos] = useState({ top: 0, left: 0 })
+  const layoutMenuRef = useRef<HTMLButtonElement>(null)
 
   const activeSlideIndex = Math.min(slideIndex, slides.length - 1)
   const slide = slides[activeSlideIndex]
@@ -267,6 +299,9 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
 
   const summaryConfig =
     cardPrefs.summary?.summary ?? defaultSummaryConfig(slide.chapterId, slide.id)
+  const viewLayout = layoutBySlide[slide.id] ?? 'sidebar'
+  const placedCards = INSIGHT_CARD_IDS.filter((id) => !cardPrefs[id]?.deleted).length
+  const emptyGridCells = (GRID_ROWS - placedCards) * 2
 
   useEffect(() => {
     if (!regeneratingSlideId) return
@@ -299,7 +334,44 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     })
     setStoryMenuOpen(false)
     setSlideMenuOpen(false)
+    setLayoutMenuOpen(false)
   }
+
+  const toggleLayoutMenu = () => {
+    const rect = layoutMenuRef.current?.getBoundingClientRect()
+    if (!rect) return
+    if (layoutMenuOpen) {
+      setLayoutMenuOpen(false)
+      return
+    }
+    const above = rect.top - 6 - LAYOUT_MENU_HEIGHT
+    setLayoutMenuPos({
+      top: above < 8 ? rect.bottom + 6 : above,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - LAYOUT_MENU_WIDTH - 8)),
+    })
+    setStoryMenuOpen(false)
+    setSlideMenuOpen(false)
+    setCardMenu(null)
+    setLayoutMenuOpen(true)
+  }
+
+  useEffect(() => {
+    if (!layoutMenuOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      const menu = document.getElementById('story-layout-menu')
+      if (layoutMenuRef.current?.contains(event.target as Node) || menu?.contains(event.target as Node)) return
+      setLayoutMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLayoutMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [layoutMenuOpen])
 
   useEffect(() => {
     if (!openCardMenu) return
@@ -399,6 +471,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     })
     setSlideMenuOpen(false)
     setStoryMenuOpen(true)
+    setLayoutMenuOpen(false)
   }
 
   useEffect(() => {
@@ -433,6 +506,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     })
     setStoryMenuOpen(false)
     setSlideMenuOpen(true)
+    setLayoutMenuOpen(false)
   }
 
   const duplicateActiveSlide = () => {
@@ -454,6 +528,9 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     )
     setCardPrefsBySlide((current) =>
       current[slide.id] ? { ...current, [id]: { ...current[slide.id] } } : current,
+    )
+    setLayoutBySlide((current) =>
+      current[slide.id] ? { ...current, [id]: current[slide.id] } : current,
     )
     setSlideIndex(slides.length)
     setSlideMenuOpen(false)
@@ -478,6 +555,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       delete next[slide.id]
       return next
     })
+    setLayoutBySlide((current) => {
+      const next = { ...current }
+      delete next[slide.id]
+      return next
+    })
     setSlideIndex((currentIndex) => {
       if (currentIndex > deletedIndex) return currentIndex - 1
       return Math.min(currentIndex, slides.length - 2)
@@ -485,6 +567,25 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     setSlideMenuOpen(false)
     setDirectSlideEditor(false)
     setEditSection(null)
+  }
+
+  const addSlide = (chapterId: string, insertAt = slides.length) => {
+    const source = slides[activeSlideIndex] ?? slides[0]
+    if (!source) return
+    const id = `${story.id}-slide-${Date.now()}`
+    const chapterSlides = slides.filter((item) => item.chapterId === chapterId)
+    const nextSlide = {
+      ...copySlide(source),
+      id,
+      chapterId,
+      title: `Untitled slide ${chapterSlides.length + 1}`,
+    }
+    setSlides((items) => [...items.slice(0, insertAt), nextSlide, ...items.slice(insertAt)])
+    setFiltersBySlide((current) => ({
+      ...current,
+      [id]: filters.map((filter) => ({ ...filter })),
+    }))
+    setSlideIndex(insertAt)
   }
 
   const deleteStory = () => {
@@ -628,6 +729,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 ? styles.insightSmall
                 : '',
               slide.focusLayout ? styles.insightFocus : '',
+              storyMode === 'edit' ? styles.insightGrid : '',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -705,6 +807,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 kpi={chartKpi('sites')}
               />,
             )}
+            {storyMode === 'edit'
+              ? Array.from({ length: emptyGridCells }, (_, index) => (
+                  <div key={`cell-${index}`} className={styles.gridCell} aria-hidden />
+                ))
+              : null}
           </aside>
         </div>
 
@@ -760,24 +867,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 setSlideIndex(0)
               }
             }}
-            onAddSlide={(chapterId) => {
-              const source = slides[activeSlideIndex] ?? slides[0]
-              if (!source) return
-              const id = `${story.id}-slide-${Date.now()}`
-              const chapterSlides = slides.filter((item) => item.chapterId === chapterId)
-              const nextSlide = {
-                ...copySlide(source),
-                id,
-                chapterId,
-                title: `Untitled slide ${chapterSlides.length + 1}`,
-              }
-              setSlides((items) => [...items, nextSlide])
-              setFiltersBySlide((current) => ({
-                ...current,
-                [id]: filters.map((filter) => ({ ...filter })),
-              }))
-              setSlideIndex(slides.length)
-            }}
+            onAddSlide={(chapterId) => addSlide(chapterId)}
             onDuplicateSlide={(slideId) => {
               const source = slides.find((item) => item.id === slideId) ?? slide
               if (!source) return
@@ -825,6 +915,12 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             }}
             mapStyleId={mapStyle.id}
             onMapStyleChange={setMapStyle}
+            onAddCharts={(chartIds) => {
+              chartIds.forEach((chartId) => {
+                const cardId = CHART_CARD_BY_ASSET[chartId]
+                if (cardId) updateCard(cardId, { deleted: false, hidden: false })
+              })
+            }}
           />
         ) : null}
 
@@ -846,21 +942,36 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             onRangeChange={(rangeId) => updateTimeline(slide.id, (current) => withRange(current, rangeId))}
           />
           <div className={styles.mapData}>
-            <button
-              type="button"
-              className={styles.mapDataHeader}
-              onClick={() => setLegendOpen((o) => !o)}
-              aria-expanded={legendOpen}
-            >
-              <span>Map Data</span>
-              <CaretDown
-                size={18}
-                weight="regular"
-                className={legendOpen ? undefined : styles.caretClosed}
-                aria-hidden
-              />
-            </button>
-            {legendOpen ? (
+            {storyMode === 'edit' ? (
+              <div className={`${styles.mapDataHeader} ${styles.mapDataHeaderEdit}`}>
+                <span>Map Data</span>
+                <button
+                  type="button"
+                  className={`${styles.mapDataBackgroundBtn}${editSection === 'map' ? ` ${styles.mapDataBackgroundBtnActive}` : ''}`}
+                  aria-pressed={editSection === 'map'}
+                  onClick={() => toggleSection('map')}
+                >
+                  <MapTrifold size={16} weight="regular" aria-hidden />
+                  Background
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className={styles.mapDataHeader}
+                onClick={() => setLegendOpen((o) => !o)}
+                aria-expanded={legendOpen}
+              >
+                <span>Map Data</span>
+                <CaretDown
+                  size={18}
+                  weight="regular"
+                  className={legendOpen ? undefined : styles.caretClosed}
+                  aria-hidden
+                />
+              </button>
+            )}
+            {legendOpen || storyMode === 'edit' ? (
               <div className={styles.mapDataBody}>
                 <div className={styles.legendGroup}>
                   <div className={styles.legendHead}>
@@ -1021,6 +1132,17 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 <List size={16} weight="regular" aria-hidden />
                 {activeSlideIndex + 1}/{slides.length}
               </button>
+              {storyMode === 'edit' ? (
+                <button
+                  type="button"
+                  className={`${styles.navCount} ${styles.navAddSlide}`}
+                  aria-label="Add slide"
+                  title="Add slide"
+                  onClick={() => addSlide(slide.chapterId, activeSlideIndex + 1)}
+                >
+                  <Plus size={16} weight="bold" aria-hidden />
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={styles.navArrow}
@@ -1038,9 +1160,39 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             role="group"
             aria-label="Story mode"
           >
+            <button
+              type="button"
+              className={`${styles.modeBtn}${storyMode === 'view' ? ` ${styles.modeBtnActive}` : ''}`}
+              aria-label="View mode"
+              aria-pressed={storyMode === 'view'}
+              onClick={() => {
+                setStoryMode('view')
+                setDirectSlideEditor(false)
+                setEditSection(null)
+                setStoryMenuOpen(false)
+                setSlideMenuOpen(false)
+                setLayoutMenuOpen(false)
+                setInfoOpen(false)
+              }}
+            >
+              <Eye size={20} weight="regular" aria-hidden />
+            </button>
+            <button
+              type="button"
+              className={`${styles.modeBtn}${storyMode === 'edit' ? ` ${styles.modeBtnActive}` : ''}`}
+              aria-label="Edit mode"
+              aria-pressed={storyMode === 'edit'}
+              onClick={() => {
+                setStoryMode('edit')
+                setInfoOpen(false)
+              }}
+            >
+              <PencilSimple size={20} weight="regular" aria-hidden />
+            </button>
             <div className={styles.modeActions} aria-hidden={storyMode !== 'edit'} inert={storyMode !== 'edit'}>
               <div className={styles.modeActionsClip}>
                 <div className={styles.modeActionsInner}>
+                  <span className={styles.modeDivider} aria-hidden />
                   <button
                     type="button"
                     className={`${styles.modeAction}${editSection === 'assets' ? ` ${styles.modeActionActive}` : ''}`}
@@ -1058,45 +1210,21 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                     Tools
                   </button>
                   <button
+                    ref={layoutMenuRef}
                     type="button"
-                    className={`${styles.modeAction}${editSection === 'map' ? ` ${styles.modeActionActive}` : ''}`}
-                    onClick={() => toggleSection('map')}
+                    className={`${styles.modeAction}${layoutMenuOpen ? ` ${styles.modeActionActive}` : ''}`}
+                    aria-label="Layout"
+                    aria-haspopup="menu"
+                    aria-expanded={layoutMenuOpen}
+                    aria-controls="story-layout-menu"
+                    onClick={toggleLayoutMenu}
                   >
-                    <MapTrifold size={18} weight="regular" aria-hidden />
-                    Background
+                    <Layout size={18} weight="regular" aria-hidden />
+                    Layout
                   </button>
-                  <span className={styles.modeDivider} aria-hidden />
                 </div>
               </div>
             </div>
-            <button
-              type="button"
-              className={`${styles.modeBtn}${storyMode === 'edit' ? ` ${styles.modeBtnActive}` : ''}`}
-              aria-label="Edit mode"
-              aria-pressed={storyMode === 'edit'}
-              onClick={() => {
-                setStoryMode('edit')
-                setInfoOpen(false)
-              }}
-            >
-              <PencilSimple size={20} weight="regular" aria-hidden />
-            </button>
-            <button
-              type="button"
-              className={`${styles.modeBtn}${storyMode === 'view' ? ` ${styles.modeBtnActive}` : ''}`}
-              aria-label="View mode"
-              aria-pressed={storyMode === 'view'}
-              onClick={() => {
-                setStoryMode('view')
-                setDirectSlideEditor(false)
-                setEditSection(null)
-                setStoryMenuOpen(false)
-                setSlideMenuOpen(false)
-                setInfoOpen(false)
-              }}
-            >
-              <Eye size={20} weight="regular" aria-hidden />
-            </button>
           </div>
         </div>
       </div>
@@ -1135,6 +1263,40 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               <Trash size={16} weight="regular" aria-hidden />
               Delete slide
             </button>
+          </div>,
+          document.body,
+        )
+      : null}
+    {layoutMenuOpen
+      ? createPortal(
+          <div
+            id="story-layout-menu"
+            className={`${styles.storyMenu} ${styles.layoutMenu}`}
+            role="menu"
+            aria-label="Layout"
+            style={{ top: layoutMenuPos.top, left: layoutMenuPos.left }}
+          >
+            {VIEW_LAYOUTS.map((option) => {
+              const Icon = option.icon
+              const selected = viewLayout === option.id
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={selected}
+                  className={selected ? styles.storyMenuSelected : undefined}
+                  onClick={() => {
+                    setLayoutBySlide((current) => ({ ...current, [slide.id]: option.id }))
+                    setLayoutMenuOpen(false)
+                  }}
+                >
+                  <Icon size={16} weight="regular" aria-hidden />
+                  {option.label}
+                  {selected ? <Check className={styles.storyMenuCheck} size={14} weight="bold" aria-hidden /> : null}
+                </button>
+              )
+            })}
           </div>,
           document.body,
         )

@@ -68,6 +68,8 @@ export type StoryEditPanelProps = {
   directSlideEditor?: boolean
   mapStyleId: string
   onMapStyleChange: (style: { id: string; url: string }) => void
+  /** Places the picked charts (STORY_CHARTS ids) into the slide's grid. */
+  onAddCharts?: (chartIds: string[]) => void
   section: StoryEditSection
 }
 
@@ -104,6 +106,7 @@ export function StoryEditPanel({
   directSlideEditor = false,
   mapStyleId,
   onMapStyleChange,
+  onAddCharts,
   section,
 }: StoryEditPanelProps) {
   const [isEditingSlide, setIsEditingSlide] = useState(directSlideEditor)
@@ -207,6 +210,7 @@ export function StoryEditPanel({
         <AssetsPicker
           filters={filters}
           onFiltersChange={onFiltersChange}
+          onAddCharts={onAddCharts}
           onClose={onClose}
           chartsOnly={section === 'assets'}
           filtersOnly={section === 'filters'}
@@ -543,6 +547,7 @@ function FilterGlyph({ icon }: { icon: FilterIcon }) {
 function AssetsPicker({
   filters,
   onFiltersChange,
+  onAddCharts,
   onClose,
   chartsOnly = false,
   filtersOnly = false,
@@ -550,6 +555,7 @@ function AssetsPicker({
 }: {
   filters: StoryFilter[]
   onFiltersChange: (filters: StoryFilter[]) => void
+  onAddCharts?: (chartIds: string[]) => void
   onClose: () => void
   chartsOnly?: boolean
   filtersOnly?: boolean
@@ -790,6 +796,10 @@ function AssetsPicker({
               } else if (catalogAdditions.length > 0) {
                 onFiltersChange([...filters, ...catalogAdditions])
               }
+              const selectedCharts = CHARTS.filter((item) => selected.includes(item.id)).map(
+                (item) => item.id,
+              )
+              if (selectedCharts.length > 0) onAddCharts?.(selectedCharts)
               onClose()
             }}
           >
