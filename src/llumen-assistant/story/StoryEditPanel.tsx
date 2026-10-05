@@ -99,6 +99,7 @@ export type StoryPresentationSettings = {
   chapterSplash: boolean
   autoplay: boolean
   multiSlide: boolean
+  pagesMode: boolean
 }
 
 export function StoryEditPanel({
@@ -1128,6 +1129,19 @@ function MainContentTab({
           arrows. Slides content is still saved as usual.
         </p>
       </div>
+      {presentationSettings.multiSlide ? (
+        <div className={styles.settingGroup}>
+          <SettingToggle
+            label="Enable Pages Mode"
+            checked={presentationSettings.pagesMode}
+            onChange={(checked) => patchSettings('pagesMode', checked)}
+          />
+          <p className={styles.settingHelp}>
+            Shows each slide as a page pill at the top of the story. Click a pill to open its page;
+            the page pills replace the slide arrows in the toolbar.
+          </p>
+        </div>
+      ) : null}
     </section>
   )
 }

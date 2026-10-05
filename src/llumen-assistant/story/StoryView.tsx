@@ -128,7 +128,13 @@ function filterIcon(id: string) {
 
 type StoryViewLayout = 'sidebar' | 'grid' | 'comparison'
 
-type ComparisonChoice = { option: ComparisonMapOption; layers: StoryMapLayerVisibility }
+type ComparisonChoice = {
+  option: ComparisonMapOption
+  layers: StoryMapLayerVisibility
+  /** The lower map's own filters and time series, used while the maps are unlinked. */
+  filters?: StoryFilter[]
+  timeline?: SlideTimeline
+}
 type MapDataLayerKey = keyof StoryMapLayerVisibility
 
 /** Upper map share of the screen height. */
@@ -212,6 +218,7 @@ function makePresentationSettings(): StoryPresentationSettings {
     chapterSplash: false,
     autoplay: false,
     multiSlide: true,
+    pagesMode: false,
   }
 }
 
@@ -222,6 +229,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const [presentationSettings, setPresentationSettings] = useState(makePresentationSettings)
   const [autoplaying, setAutoplaying] = useState(false)
   const [slideIndex, setSlideIndex] = useState(0)
+  const [pageRename, setPageRename] = useState<{ slideId: string; title: string } | null>(null)
   const [chapters, setChapters] = useState<StoryChapter[]>(() =>
     story.chapters.map((chapter) => ({ ...chapter })),
   )
@@ -278,6 +286,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const [comparisonBySlide, setComparisonBySlide] = useState<Record<string, ComparisonChoice>>({})
   const [comparisonPickerOpen, setComparisonPickerOpen] = useState(false)
   const [comparisonLegendOpen, setComparisonLegendOpen] = useState({ upper: false, lower: false })
+  const [comparisonInsightOpen, setComparisonInsightOpen] = useState(false)
+  const [mapsLinked, setMapsLinked] = useState(true)
+  const [lowerPlaying, setLowerPlaying] = useState(false)
+  const [lowerSpeed, setLowerSpeed] = useState(1)
+  const [filterTarget, setFilterTarget] = useState<'upper' | 'lower'>('upper')
   const [cameraLink] = useState(createCameraLink)
   const [comparisonSplit, setComparisonSplit] = useState(COMPARISON_SPLIT_DEFAULT)
   const [splitDragging, setSplitDragging] = useState(false)
@@ -304,6 +317,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   if (timelineSlideId !== slide.id) {
     setTimelineSlideId(slide.id)
     setTimelinePlaying(false)
+    setLowerPlaying(false)
   }
   const filters = filtersBySlide[slide.id] ?? story.filters
   const timeline = timelineBySlide[slide.id] ?? DEFAULT_SLIDE_TIMELINE
@@ -379,15 +393,64 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     option: comparisonMapOptions[0],
     layers: comparisonMapOptions[0].layers,
   }
-  const comparisonFramePhase = comparisonPhase(framePhase, comparison.option)
+  const lowerFiltersFor = (option: ComparisonMapOption) =>
+    filters
+      .filter((filter) => option.source !== 'filters' || option.id !== `filter-${filter.id}`)
+      .map((filter) => ({ ...filter }))
+  const lowerFilters = mapsLinked ? filters : (comparison.filters ?? lowerFiltersFor(comparison.option))
+  const lowerTimeline = (!mapsLinked && comparison.timeline) || timeline
+  const lowerRange = timelineRangeById(lowerTimeline.rangeId)
+  const lowerGranularity = timelineGranularityById(lowerTimeline.granularityId)
+  const lowerFrameCount = timelineFrameCount(lowerRange, lowerGranularity)
+  const lowerStepMs = mapsLinked ? frameStepMs : timelineStepMs(lowerFrameCount, lowerSpeed)
+  const lowerAnimating = mapsLinked ? timelinePlaying : lowerPlaying
+  const comparisonFramePhase = comparisonPhase(
+    lowerTimeline.frame / lowerFrameCount,
+    comparison.option,
+  )
+  const updateComparison = (update: (current: ComparisonChoice) => ComparisonChoice) =>
+    setComparisonBySlide((current) => ({
+      ...current,
+      [slide.id]: update(current[slide.id] ?? comparison),
+    }))
+  const setMapsLinking = (linked: boolean) => {
+    setMapsLinked(linked)
+    if (linked) {
+      setLowerPlaying(false)
+      if (filterTarget === 'lower') setFilterTarget('upper')
+      return
+    }
+    updateComparison((current) => ({
+      ...current,
+      filters: current.filters ?? lowerFiltersFor(current.option),
+      timeline: { ...timeline },
+    }))
+    setLowerPlaying(timelinePlaying)
+    setLowerSpeed(playbackSpeed)
+  }
+
+  useEffect(() => {
+    if (mapsLinked || !lowerPlaying) return
+    const slideId = slide.id
+    const timer = window.setTimeout(() => {
+      setComparisonBySlide((current) => {
+        const entry = current[slideId]
+        if (!entry?.timeline) return current
+        const nextTimeline = { ...entry.timeline, frame: (entry.timeline.frame + 1) % lowerFrameCount }
+        return { ...current, [slideId]: { ...entry, timeline: nextTimeline } }
+      })
+    }, lowerStepMs)
+    return () => window.clearTimeout(timer)
+  }, [mapsLinked, lowerPlaying, lowerTimeline.frame, lowerStepMs, slide.id, lowerFrameCount])
+
   const comparisonScene = useMemo(
     () => sceneAtPhase(storySceneAt(comparison.option.sceneIndex), comparisonFramePhase),
     [comparison.option.sceneIndex, comparisonFramePhase],
   )
   const toggleComparisonLayer = (key: MapDataLayerKey) =>
-    setComparisonBySlide((current) => ({
+    updateComparison((current) => ({
       ...current,
-      [slide.id]: { ...comparison, layers: { ...comparison.layers, [key]: !comparison.layers[key] } },
+      layers: { ...current.layers, [key]: !current.layers[key] },
     }))
   const placedCards = INSIGHT_CARD_IDS.filter((id) => !cardPrefs[id]?.deleted).length
   const emptyGridCells = (GRID_ROWS - placedCards) * 2
@@ -605,12 +668,15 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   }, [slideMenuOpen])
 
   const toggleSlideMenu = () => {
-    const rect = slideMenuRef.current?.getBoundingClientRect()
-    if (!rect) return
     if (slideMenuOpen) {
       setSlideMenuOpen(false)
       return
     }
+    if (slideMenuRef.current) openSlideMenu(slideMenuRef.current)
+  }
+
+  const openSlideMenu = (anchor: HTMLElement) => {
+    const rect = anchor.getBoundingClientRect()
     const width = 200
     setSlideMenuPos({
       top: rect.bottom + 6,
@@ -648,40 +714,35 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     setSlideMenuOpen(false)
   }
 
-  const deleteActiveSlide = () => {
+  const deleteSlide = (slideId: string) => {
     if (slides.length === 1) return
-    const deletedIndex = activeSlideIndex
-    setSlides((items) => items.filter((item) => item.id !== slide.id))
-    setFiltersBySlide((current) => {
+    const deletedIndex = slides.findIndex((item) => item.id === slideId)
+    if (deletedIndex === -1) return
+    const omit = <T,>(current: Record<string, T>) => {
       const next = { ...current }
-      delete next[slide.id]
+      delete next[slideId]
       return next
-    })
-    setTimelineBySlide((current) => {
-      const next = { ...current }
-      delete next[slide.id]
-      return next
-    })
-    setCardPrefsBySlide((current) => {
-      const next = { ...current }
-      delete next[slide.id]
-      return next
-    })
-    setLayoutBySlide((current) => {
-      const next = { ...current }
-      delete next[slide.id]
-      return next
-    })
+    }
+    setSlides((items) => items.filter((item) => item.id !== slideId))
+    setFiltersBySlide(omit)
+    setTimelineBySlide(omit)
+    setCardPrefsBySlide(omit)
+    setLayoutBySlide(omit)
     setSlideIndex((currentIndex) => {
       if (currentIndex > deletedIndex) return currentIndex - 1
       return Math.min(currentIndex, slides.length - 2)
     })
+  }
+
+  const deleteActiveSlide = () => {
+    if (slides.length === 1) return
+    deleteSlide(slide.id)
     setSlideMenuOpen(false)
     setDirectSlideEditor(false)
     setEditSection(null)
   }
 
-  const addSlide = (chapterId: string, insertAt = slides.length) => {
+  const addSlide = (chapterId: string, insertAt = slides.length, title?: string) => {
     const source = slides[activeSlideIndex] ?? slides[0]
     if (!source) return
     const id = `${story.id}-slide-${Date.now()}`
@@ -690,7 +751,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       ...copySlide(source),
       id,
       chapterId,
-      title: `Untitled slide ${chapterSlides.length + 1}`,
+      title: title ?? `Untitled slide ${chapterSlides.length + 1}`,
     }
     setSlides((items) => [...items.slice(0, insertAt), nextSlide, ...items.slice(insertAt)])
     setFiltersBySlide((current) => ({
@@ -706,14 +767,123 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     onBack()
   }
 
+  const commitPageRename = () => {
+    if (!pageRename) return
+    const title = pageRename.title.trim()
+    if (title) {
+      setSlides((items) =>
+        items.map((item) => (item.id === pageRename.slideId ? { ...item, title } : item)),
+      )
+    }
+    setPageRename(null)
+  }
+
+  const pagesNav =
+    presentationSettings.multiSlide && presentationSettings.pagesMode ? (
+      <nav className={styles.pages} aria-label="Story pages">
+        {slides.map((page, index) => {
+          const active = index === activeSlideIndex
+          const pillClass = `${styles.pagePill}${active ? ` ${styles.pagePillActive}` : ''}`
+          if (pageRename?.slideId === page.id) {
+            return (
+              <span key={page.id} className={pillClass}>
+                <input
+                  className={styles.pageRenameInput}
+                  aria-label="Page name"
+                  value={pageRename.title}
+                  size={Math.max(pageRename.title.length, 6)}
+                  autoFocus
+                  onFocus={(event) => event.currentTarget.select()}
+                  onChange={(event) => setPageRename({ slideId: page.id, title: event.target.value })}
+                  onBlur={commitPageRename}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') commitPageRename()
+                    if (event.key === 'Escape') setPageRename(null)
+                  }}
+                />
+              </span>
+            )
+          }
+          return (
+            <span key={page.id} className={pillClass}>
+              <button
+                type="button"
+                className={styles.pageSelect}
+                aria-current={active ? 'page' : undefined}
+                onClick={() => setSlideIndex(index)}
+              >
+                {page.title}
+              </button>
+              {storyMode === 'edit' ? (
+                <button
+                  ref={active ? slideMenuRef : undefined}
+                  type="button"
+                  className={`${styles.slideMenuBtn} ${styles.pageMenuBtn}${active && slideMenuOpen ? ` ${styles.slideMenuBtnOpen}` : ''}`}
+                  aria-label={`${page.title} actions`}
+                  aria-haspopup="menu"
+                  aria-expanded={active && slideMenuOpen}
+                  aria-controls="slide-title-menu"
+                  onClick={(event) => {
+                    if (active) {
+                      toggleSlideMenu()
+                      return
+                    }
+                    setSlideIndex(index)
+                    openSlideMenu(event.currentTarget)
+                  }}
+                >
+                  <DotsThreeVertical size={14} weight="bold" aria-hidden />
+                </button>
+              ) : null}
+            </span>
+          )
+        })}
+        {storyMode === 'edit' ? (
+          <button
+            type="button"
+            className={styles.pageAddBtn}
+            onClick={() =>
+              addSlide(slides[slides.length - 1].chapterId, slides.length, `Page ${slides.length + 1}`)
+            }
+          >
+            <Plus size={16} weight="bold" aria-hidden />
+            Add Page
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={styles.infoBtn}
+            aria-label="Show slide description"
+            aria-expanded={infoOpen}
+            aria-describedby={infoOpen ? 'slide-description' : undefined}
+            onClick={() => setInfoOpen((open) => !open)}
+          >
+            <Info size={18} weight="regular" aria-hidden />
+          </button>
+        )}
+      </nav>
+    ) : null
+
   useEffect(() => {
-    if (!autoplaying || !presentationSettings.autoplay || !presentationSettings.multiSlide) return
+    if (
+      !autoplaying ||
+      !presentationSettings.autoplay ||
+      !presentationSettings.multiSlide ||
+      presentationSettings.pagesMode
+    )
+      return
     const timer = window.setInterval(
       () => setSlideIndex((index) => (index + 1) % slides.length),
       4000,
     )
     return () => window.clearInterval(timer)
-  }, [autoplaying, presentationSettings.autoplay, presentationSettings.multiSlide, slides.length])
+  }, [
+    autoplaying,
+    presentationSettings.autoplay,
+    presentationSettings.multiSlide,
+    presentationSettings.pagesMode,
+    slides.length,
+  ])
 
   const backgroundButton = (
     <button
@@ -745,6 +915,108 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       onRangeChange={(rangeId) => updateTimeline(slide.id, (current) => withRange(current, rangeId))}
     />
   )
+
+  const updateLowerTimeline = (update: (current: SlideTimeline) => SlideTimeline) =>
+    updateComparison((current) => ({ ...current, timeline: update(current.timeline ?? lowerTimeline) }))
+
+  const lowerTimeSeries = (
+    <StoryTimeSeries
+      range={lowerRange}
+      granularity={lowerGranularity}
+      frameCount={lowerFrameCount}
+      frame={lowerTimeline.frame}
+      playing={lowerPlaying}
+      speed={lowerSpeed}
+      stepMs={lowerStepMs}
+      onFrameChange={(frame) => updateLowerTimeline((current) => ({ ...current, frame }))}
+      onPlayingChange={(playing) => {
+        updateLowerTimeline((current) => current)
+        setLowerPlaying(playing)
+      }}
+      onSpeedChange={setLowerSpeed}
+      onGranularityChange={(granularityId) =>
+        updateLowerTimeline((current) => withGranularity(current, granularityId))
+      }
+      onRangeChange={(rangeId) => updateLowerTimeline((current) => withRange(current, rangeId))}
+    />
+  )
+
+  const linkMapsToggle = (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={mapsLinked}
+      className={styles.linkMaps}
+      onClick={() => setMapsLinking(!mapsLinked)}
+    >
+      <span className={styles.linkMapsText}>
+        <span className={styles.linkMapsLabel}>Link maps</span>
+        <span className={styles.linkMapsHint}>
+          {mapsLinked
+            ? 'Shared camera, time series and filters'
+            : 'Each map has its own camera, time series and filters'}
+        </span>
+      </span>
+      <span className={`${styles.linkMapsSwitch}${mapsLinked ? ` ${styles.linkMapsSwitchOn}` : ''}`} aria-hidden>
+        <span className={styles.linkMapsThumb} />
+      </span>
+    </button>
+  )
+
+  const filterRow = (
+    target: 'upper' | 'lower',
+    list: StoryFilter[],
+    onRemove: (filterId: string) => void,
+  ) => {
+    const editingHere = editSection === 'filters' && filterTarget === target
+    return (
+      <div className={styles.filters}>
+        {storyMode === 'edit' ? (
+          <>
+            <button
+              type="button"
+              className={`${styles.filterAddBtn}${editingHere ? ` ${styles.filterAddBtnActive}` : ''}`}
+              aria-pressed={editingHere}
+              aria-label={target === 'lower' ? 'Filters for the comparison map' : undefined}
+              onClick={() => {
+                setDirectSlideEditor(false)
+                setFilterTarget(target)
+                setEditSection(editingHere ? null : 'filters')
+              }}
+            >
+              <Plus size={16} weight="bold" aria-hidden />
+              Filters
+            </button>
+            {list.length > 0 ? <span className={styles.filterDivider} aria-hidden /> : null}
+          </>
+        ) : null}
+        {list.map((f) => (
+          <span
+            key={f.id}
+            className={`${styles.filterPill}${storyMode === 'edit' ? ` ${styles.filterPillEditing}` : ''}`}
+          >
+            {filterIcon(f.id)}
+            <span>{f.label}</span>
+            {storyMode === 'edit' ? (
+              <button
+                type="button"
+                className={styles.filterRemove}
+                aria-label={`Remove ${f.label}`}
+                onClick={() => onRemove(f.id)}
+              >
+                <X size={12} weight="bold" aria-hidden />
+              </button>
+            ) : null}
+          </span>
+        ))}
+      </div>
+    )
+  }
+
+  const editingLowerFilters =
+    editSection === 'filters' && filterTarget === 'lower' && viewLayout === 'comparison' && !mapsLinked
+  const setLowerFilters = (update: (current: StoryFilter[]) => StoryFilter[]) =>
+    updateComparison((current) => ({ ...current, filters: update(current.filters ?? lowerFilters) }))
 
   const toggleLayer = (key: MapDataLayerKey) =>
     setLayers((current) => ({ ...current, [key]: !current[key] }))
@@ -971,7 +1243,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           frameDuration={timelinePlaying ? frameStepMs : 500}
           frameLinear={timelinePlaying}
           styleUrl={mapStyle.url}
-          cameraLink={viewLayout === 'comparison' ? cameraLink : undefined}
+          cameraLink={viewLayout === 'comparison' && mapsLinked ? cameraLink : undefined}
         />
       </div>
       {viewLayout === 'comparison' ? (
@@ -982,11 +1254,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             layers={comparison.layers}
             sceneIndex={comparison.option.sceneIndex}
             framePhase={comparisonFramePhase}
-            frameDuration={timelinePlaying ? frameStepMs : 500}
-            frameLinear={timelinePlaying}
+            frameDuration={lowerAnimating ? lowerStepMs : 500}
+            frameLinear={lowerAnimating}
             styleUrl={mapStyle.url}
             controlsClassName={styles.comparisonControls}
-            cameraLink={cameraLink}
+            cameraLink={mapsLinked ? cameraLink : undefined}
             flyToScene={false}
           />
         </section>
@@ -1007,7 +1279,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
 
       <div className={styles.overlay}>
         <header className={styles.header} dir={presentationSettings.textDirection}>
-          <div className={styles.titleRow}>
+          <div className={`${styles.titleRow}${pagesNav ? ` ${styles.titleRowPages}` : ''}`}>
             <button type="button" className={styles.backBtn} onClick={onBack} aria-label="Back to home">
               <ArrowLeft size={20} weight="regular" aria-hidden />
             </button>
@@ -1029,34 +1301,36 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                   </button>
                 ) : null}
               </div>
-              <div className={styles.slideTitleRow}>
-                <h2 className={styles.slideTitle}>{slide.title}</h2>
-                {storyMode === 'edit' ? (
-                  <button
-                    ref={slideMenuRef}
-                    type="button"
-                    className={`${styles.slideMenuBtn}${slideMenuOpen ? ` ${styles.slideMenuBtnOpen}` : ''}`}
-                    aria-label="Slide actions"
-                    aria-haspopup="menu"
-                    aria-expanded={slideMenuOpen}
-                    aria-controls="slide-title-menu"
-                    onClick={toggleSlideMenu}
-                  >
-                    <DotsThreeVertical size={16} weight="bold" aria-hidden />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className={styles.infoBtn}
-                    aria-label="Show slide description"
-                    aria-expanded={infoOpen}
-                    aria-describedby={infoOpen ? 'slide-description' : undefined}
-                    onClick={() => setInfoOpen((open) => !open)}
-                  >
-                    <Info size={18} weight="regular" aria-hidden />
-                  </button>
-                )}
-              </div>
+              {pagesNav ?? (
+                <div className={styles.slideTitleRow}>
+                  <h2 className={styles.slideTitle}>{slide.title}</h2>
+                  {storyMode === 'edit' ? (
+                    <button
+                      ref={slideMenuRef}
+                      type="button"
+                      className={`${styles.slideMenuBtn}${slideMenuOpen ? ` ${styles.slideMenuBtnOpen}` : ''}`}
+                      aria-label="Slide actions"
+                      aria-haspopup="menu"
+                      aria-expanded={slideMenuOpen}
+                      aria-controls="slide-title-menu"
+                      onClick={toggleSlideMenu}
+                    >
+                      <DotsThreeVertical size={16} weight="bold" aria-hidden />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.infoBtn}
+                      aria-label="Show slide description"
+                      aria-expanded={infoOpen}
+                      aria-describedby={infoOpen ? 'slide-description' : undefined}
+                      onClick={() => setInfoOpen((open) => !open)}
+                    >
+                      <Info size={18} weight="regular" aria-hidden />
+                    </button>
+                  )}
+                </div>
+              )}
               {storyMode === 'view' && infoOpen ? (
                 <div id="slide-description" className={styles.infoPopover} role="tooltip">
                   {slide.finding || 'No description added.'}
@@ -1064,46 +1338,12 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               ) : null}
             </div>
           </div>
-          <div className={styles.filters}>
-            {storyMode === 'edit' ? (
-              <>
-                <button
-                  type="button"
-                  className={`${styles.filterAddBtn}${editSection === 'filters' ? ` ${styles.filterAddBtnActive}` : ''}`}
-                  aria-pressed={editSection === 'filters'}
-                  onClick={() => toggleSection('filters')}
-                >
-                  <Plus size={16} weight="bold" aria-hidden />
-                  Filters
-                </button>
-                {filters.length > 0 ? <span className={styles.filterDivider} aria-hidden /> : null}
-              </>
-            ) : null}
-            {filters.map((f) => (
-              <span
-                key={f.id}
-                className={`${styles.filterPill}${storyMode === 'edit' ? ` ${styles.filterPillEditing}` : ''}`}
-              >
-                {filterIcon(f.id)}
-                <span>{f.label}</span>
-                {storyMode === 'edit' ? (
-                  <button
-                    type="button"
-                    className={styles.filterRemove}
-                    aria-label={`Remove ${f.label}`}
-                    onClick={() =>
-                      setFiltersBySlide((current) => ({
-                        ...current,
-                        [slide.id]: (current[slide.id] ?? filters).filter((item) => item.id !== f.id),
-                      }))
-                    }
-                  >
-                    <X size={12} weight="bold" aria-hidden />
-                  </button>
-                ) : null}
-              </span>
-            ))}
-          </div>
+          {filterRow('upper', filters, (filterId) =>
+            setFiltersBySlide((current) => ({
+              ...current,
+              [slide.id]: (current[slide.id] ?? filters).filter((item) => item.id !== filterId),
+            })),
+          )}
           <div className={styles.headerRule} aria-hidden />
         </header>
 
@@ -1112,6 +1352,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           className={[
             styles.body,
             viewLayout === 'grid' ? styles.bodyGrid : slide.focusLayout ? styles.bodyFocus : '',
+            viewLayout === 'comparison' ? styles.bodyComparison : '',
           ]
             .filter(Boolean)
             .join(' ')}
@@ -1148,37 +1389,62 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 : null}
             </aside>
           ) : (
-            <aside
-              className={[
-                styles.insight,
-                slide.layout === 'full-width' ? styles.insightFullWidth : '',
-                slide.layout === 'sidebar' && slide.sidebarWidth === 'small'
-                  ? styles.insightSmall
-                  : '',
-                slide.focusLayout ? styles.insightFocus : '',
-                storyMode === 'edit' ? styles.insightGrid : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              aria-label="Story insight"
-            >
-              {insightCards}
-              {storyMode === 'edit'
-                ? Array.from({ length: emptyGridCells }, (_, index) => (
-                    <div key={`cell-${index}`} className={styles.gridCell} aria-hidden />
-                  ))
-                : null}
-            </aside>
+            <>
+              {viewLayout === 'comparison' ? (
+                <button
+                  type="button"
+                  className={`${styles.filterAddBtn} ${styles.insightToggle}${comparisonInsightOpen ? ` ${styles.filterAddBtnActive}` : ''}`}
+                  aria-expanded={comparisonInsightOpen}
+                  aria-controls="story-insight"
+                  onClick={() => setComparisonInsightOpen((open) => !open)}
+                >
+                  <Sidebar size={16} weight="regular" aria-hidden />
+                  {comparisonInsightOpen ? 'Hide insights' : 'Show insights'}
+                </button>
+              ) : null}
+              {viewLayout !== 'comparison' || comparisonInsightOpen ? (
+                <aside
+                  id="story-insight"
+                  className={[
+                    styles.insight,
+                    viewLayout === 'comparison' ? styles.insightBelowToggle : '',
+                    slide.layout === 'full-width' ? styles.insightFullWidth : '',
+                    slide.layout === 'sidebar' && slide.sidebarWidth === 'small'
+                      ? styles.insightSmall
+                      : '',
+                    slide.focusLayout ? styles.insightFocus : '',
+                    storyMode === 'edit' ? styles.insightGrid : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-label="Story insight"
+                >
+                  {insightCards}
+                  {storyMode === 'edit'
+                    ? Array.from({ length: emptyGridCells }, (_, index) => (
+                        <div key={`cell-${index}`} className={styles.gridCell} aria-hidden />
+                      ))
+                    : null}
+                </aside>
+              ) : null}
+            </>
           )}
         </div>
 
         {viewLayout === 'comparison' ? (
           <header
-            className={`${styles.comparisonTitle}${slide.layout === 'sidebar' && slide.sidebarWidth === 'small' ? ` ${styles.comparisonTitleSmall}` : ''}`}
+            className={styles.comparisonTitle}
             dir={presentationSettings.textDirection}
           >
             <p className={styles.storyTitle}>{comparison.option.eyebrow}</p>
             <h2 className={styles.slideTitle}>{comparison.option.title}</h2>
+            {mapsLinked ? null : (
+              <div className={styles.comparisonFilters}>
+                {filterRow('lower', lowerFilters, (filterId) =>
+                  setLowerFilters((current) => current.filter((item) => item.id !== filterId)),
+                )}
+              </div>
+            )}
           </header>
         ) : null}
 
@@ -1233,12 +1499,12 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             chapters={chapters}
             slides={slides}
             activeSlideIndex={activeSlideIndex}
-            filters={filters}
+            filters={editingLowerFilters ? lowerFilters : filters}
             onStoryTitleChange={setStoryTitle}
             onStoryDescriptionChange={setStoryDescription}
             onPresentationSettingsChange={(settings) => {
               setPresentationSettings(settings)
-              if (!settings.autoplay || !settings.multiSlide) setAutoplaying(false)
+              if (!settings.autoplay || !settings.multiSlide || settings.pagesMode) setAutoplaying(false)
             }}
             onSelectSlide={setSlideIndex}
             onSlideChange={(nextSlide) =>
@@ -1247,7 +1513,9 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               )
             }
             onFiltersChange={(nextFilters) =>
-              setFiltersBySlide((current) => ({ ...current, [slide.id]: nextFilters }))
+              editingLowerFilters
+                ? setLowerFilters(() => nextFilters)
+                : setFiltersBySlide((current) => ({ ...current, [slide.id]: nextFilters }))
             }
             onAddChapter={() => {
               const id = `${story.id}-chapter-${Date.now()}`
@@ -1384,10 +1652,12 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         {viewLayout === 'comparison' ? (
           <>
             <div className={`${styles.mapStack} ${styles.mapStackComparisonUpper}`}>
+              {linkMapsToggle}
               {timeSeries}
               {comparisonMapData('upper', scene.legend, layers, toggleLayer)}
             </div>
             <div className={styles.mapStack}>
+              {mapsLinked ? null : lowerTimeSeries}
               {comparisonMapData('lower', comparisonScene.legend, comparison.layers, toggleComparisonLayer)}
             </div>
           </>
@@ -1452,7 +1722,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             </button>
           ) : null}
 
-          {presentationSettings.multiSlide ? (
+          {presentationSettings.multiSlide && !presentationSettings.pagesMode ? (
             <div className={styles.navCluster}>
               {presentationSettings.autoplay ? (
                 <button
@@ -1609,6 +1879,19 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               <GearSix size={16} weight="regular" aria-hidden />
               Configure
             </button>
+            {pagesNav ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setPageRename({ slideId: slide.id, title: slide.title })
+                  setSlideMenuOpen(false)
+                }}
+              >
+                <PencilSimple size={16} weight="regular" aria-hidden />
+                Rename page
+              </button>
+            ) : null}
             <button type="button" role="menuitem" onClick={duplicateActiveSlide}>
               <Copy size={16} weight="regular" aria-hidden />
               Duplicate slide
@@ -1670,7 +1953,15 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         styleUrl={mapStyle.url}
         onClose={() => setComparisonPickerOpen(false)}
         onApply={(option) => {
-          setComparisonBySlide((current) => ({ ...current, [slide.id]: { option, layers: option.layers } }))
+          setComparisonBySlide((current) => ({
+            ...current,
+            [slide.id]: {
+              option,
+              layers: option.layers,
+              filters: mapsLinked ? undefined : lowerFiltersFor(option),
+              timeline: mapsLinked ? undefined : (current[slide.id]?.timeline ?? { ...timeline }),
+            },
+          }))
           setLayoutBySlide((current) => ({ ...current, [slide.id]: 'comparison' }))
           setComparisonLegendOpen({ upper: false, lower: false })
           setComparisonPickerOpen(false)

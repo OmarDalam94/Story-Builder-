@@ -64,11 +64,11 @@
   user-select: none;
 }
 
-/* Lower map title, placed beside the left panel. */
+/* Lower map title; lines up with the story header. */
 .comparisonTitle {
   position: absolute;
   top: calc(var(--comparison-split) * 100%);
-  left: 420px;
+  left: 20px;
   right: 88px;
   z-index: 3;
   display: flex;
@@ -78,8 +78,24 @@
   pointer-events: none;
 }
 
-.comparisonTitleSmall {
-  left: 310px;
+/* Comparison layout: insights stay hidden behind a toggle so both maps read full width. */
+.comparisonFilters {
+  margin-top: 14px;
+}
+
+.filterAddBtn.insightToggle {
+  flex-shrink: 0;
+  margin-top: 20px;
+}
+
+.insight.insightBelowToggle {
+  padding-top: 12px;
+}
+
+/* Above the lower map title (3), below the split handle (8). */
+.bodyComparison {
+  position: relative;
+  z-index: 4;
 }
 
 .splitHandle {
@@ -166,6 +182,10 @@
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.titleRowPages {
+  align-items: flex-end;
 }
 
 .backBtn {
@@ -464,6 +484,122 @@
   width: 1px;
   height: 22px;
   background: rgba(255, 255, 255, 0.22);
+}
+
+/* Pages mode: slide pills replace the toolbar slide arrows. */
+.pages {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  pointer-events: auto;
+}
+
+.pages::-webkit-scrollbar {
+  display: none;
+}
+
+.pagePill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 40px;
+  background: rgba(34, 42, 42, 0.5);
+  backdrop-filter: blur(46px);
+  -webkit-backdrop-filter: blur(46px);
+  color: #fff;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.pagePill:hover {
+  background: rgba(132, 220, 255, 0.16);
+}
+
+.pagePillActive,
+.pagePillActive:hover {
+  border-color: #70aeff;
+  background: #70aeff;
+  color: #0b1a2c;
+}
+
+.pageSelect {
+  align-self: stretch;
+  margin: 0;
+  padding: 0 6px 0 16px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pagePill:not(:has(.pageMenuBtn)) {
+  padding-right: 10px;
+}
+
+/* Same 6px inset as top and bottom (36px pill, 22px button, 1px border). */
+.pageMenuBtn {
+  margin-right: 6px;
+}
+
+.pagePillActive .pageMenuBtn {
+  border-color: rgba(11, 26, 44, 0.3);
+  background: transparent;
+  color: #0b1a2c;
+}
+
+.pagePillActive .pageMenuBtn:hover,
+.pagePillActive .pageMenuBtn.slideMenuBtnOpen {
+  border-color: rgba(11, 26, 44, 0.5);
+  background: rgba(11, 26, 44, 0.12);
+  color: #0b1a2c;
+}
+
+.pageRenameInput {
+  margin: 0 0 0 16px;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.pageAddBtn {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  height: 36px;
+  margin: 0;
+  padding: 0 16px 0 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.3);
+  border-radius: 40px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pageAddBtn:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(132, 220, 255, 0.16);
 }
 
 .headerRule {
@@ -1165,6 +1301,73 @@
 /* Shared time series and the upper map's data sit just above the split. */
 .mapStack.mapStackComparisonUpper {
   bottom: calc((1 - var(--comparison-split)) * 100% + 18px);
+}
+
+.linkMaps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(26, 26, 26, 0.5);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  color: #fff;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.linkMapsText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.linkMapsLabel {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.linkMapsHint {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.linkMapsSwitch {
+  position: relative;
+  flex-shrink: 0;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  transition: background-color 160ms ease;
+}
+
+.linkMapsSwitchOn {
+  background: #70aeff;
+}
+
+.linkMapsThumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  transition: transform 160ms ease;
+}
+
+.linkMapsSwitchOn .linkMapsThumb {
+  transform: translateX(14px);
 }
 
 .mapData {
