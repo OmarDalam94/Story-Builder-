@@ -86,6 +86,7 @@ import { StoryBackgroundLayer } from './StoryBackgroundLayer'
 import { BackgroundSettings } from './StoryBackgroundSettings'
 import { sceneAtPhase, storySceneAt, type ColumnGlyphColors, type StoryScene } from './storyDemoScenes'
 import { StoryTimeSeries } from './StoryTimeSeries'
+import type { TimelineChartSeries } from './storyTimelineCharts'
 import {
   DEFAULT_SLIDE_TIMELINE,
   timelineFrameCount,
@@ -134,7 +135,10 @@ type ComparisonChoice = {
   /** The lower map's own filters and time series, used while the maps are unlinked. */
   filters?: StoryFilter[]
   timeline?: SlideTimeline
+  charts?: TimelineChartSeries[]
 }
+
+const NO_TIMELINE_CHARTS: TimelineChartSeries[] = []
 type MapDataLayerKey = keyof StoryMapLayerVisibility
 
 /** Upper map share of the screen height. */
@@ -269,6 +273,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           : 'Image Background'
   const [timelineBySlide, setTimelineBySlide] = useState<Record<string, SlideTimeline>>({})
   const [timelinePlaying, setTimelinePlaying] = useState(false)
+  const [chartsBySlide, setChartsBySlide] = useState<Record<string, TimelineChartSeries[]>>({})
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const [cardPrefsBySlide, setCardPrefsBySlide] = useState<
     Record<string, Partial<Record<InsightCardId, InsightCardPrefs>>>
@@ -443,9 +448,10 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     return () => window.clearTimeout(timer)
   }, [mapsLinked, lowerPlaying, lowerTimeline.frame, lowerStepMs, slide.id, lowerFrameCount])
 
+  const comparisonBaseScene = storySceneAt(comparison.option.sceneIndex)
   const comparisonScene = useMemo(
-    () => sceneAtPhase(storySceneAt(comparison.option.sceneIndex), comparisonFramePhase),
-    [comparison.option.sceneIndex, comparisonFramePhase],
+    () => sceneAtPhase(comparisonBaseScene, comparisonFramePhase),
+    [comparisonBaseScene, comparisonFramePhase],
   )
   const toggleComparisonLayer = (key: MapDataLayerKey) =>
     updateComparison((current) => ({
@@ -913,6 +919,9 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         updateTimeline(slide.id, (current) => withGranularity(current, granularityId))
       }
       onRangeChange={(rangeId) => updateTimeline(slide.id, (current) => withRange(current, rangeId))}
+      chartScene={baseScene}
+      charts={chartsBySlide[slide.id] ?? NO_TIMELINE_CHARTS}
+      onChartsChange={(charts) => setChartsBySlide((current) => ({ ...current, [slide.id]: charts }))}
     />
   )
 
@@ -938,6 +947,10 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         updateLowerTimeline((current) => withGranularity(current, granularityId))
       }
       onRangeChange={(rangeId) => updateLowerTimeline((current) => withRange(current, rangeId))}
+      chartScene={comparisonBaseScene}
+      chartPhaseOffset={comparison.option.phaseOffset}
+      charts={comparison.charts ?? NO_TIMELINE_CHARTS}
+      onChartsChange={(charts) => updateComparison((current) => ({ ...current, charts }))}
     />
   )
 
@@ -1960,6 +1973,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
               layers: option.layers,
               filters: mapsLinked ? undefined : lowerFiltersFor(option),
               timeline: mapsLinked ? undefined : (current[slide.id]?.timeline ?? { ...timeline }),
+              charts: current[slide.id]?.charts,
             },
           }))
           setLayoutBySlide((current) => ({ ...current, [slide.id]: 'comparison' }))
