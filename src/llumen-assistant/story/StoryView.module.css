@@ -6,10 +6,143 @@
   overflow: hidden;
   color: #fff;
   color-scheme: dark;
+  container-type: size;
 }
 
 .map {
   z-index: 0;
+}
+
+.mapPane {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.mapPaneUpper {
+  bottom: calc((1 - var(--comparison-split)) * 100%);
+  overflow: hidden;
+}
+
+/* Lower comparison map; it sits under the overlay like the upper map, so the left panel spans both. */
+.mapPaneLower {
+  position: absolute;
+  top: calc(var(--comparison-split) * 100%);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* Comparison maps stay full story height and are clipped, so dragging the split never resizes a canvas. */
+.mapPaneUpper .mapFullHeight,
+.mapPaneLower .mapFullHeight {
+  bottom: auto;
+  height: 100cqh;
+}
+
+/* Drawn as an overlay: a border would shrink the content box and make the map height track the split. */
+.mapPaneLower::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}
+
+.mapPaneLower .comparisonControls {
+  top: 20px;
+}
+
+.rootSplitDragging {
+  cursor: row-resize;
+  user-select: none;
+}
+
+/* Lower map title, placed beside the left panel. */
+.comparisonTitle {
+  position: absolute;
+  top: calc(var(--comparison-split) * 100%);
+  left: 420px;
+  right: 88px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 20px;
+  pointer-events: none;
+}
+
+.comparisonTitleSmall {
+  left: 310px;
+}
+
+.splitHandle {
+  position: absolute;
+  top: calc(var(--comparison-split) * 100%);
+  right: 0;
+  left: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+  transform: translateY(-50%);
+  cursor: row-resize;
+  pointer-events: auto;
+  touch-action: none;
+  outline: none;
+}
+
+.splitHandle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: transparent;
+  transition: background-color 0.16s ease;
+}
+
+.splitHandleGrip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(26, 26, 26, 0.5);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  color: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24);
+  transition:
+    border-color 0.16s ease,
+    color 0.16s ease;
+}
+
+.splitHandle:hover::before,
+.splitHandleActive::before {
+  background: #70aeff;
+}
+
+.splitHandle:hover .splitHandleGrip,
+.splitHandleActive .splitHandleGrip {
+  border-color: #70aeff;
+  color: #fff;
+}
+
+.splitHandle:focus-visible .splitHandleGrip {
+  outline: 2px solid #70aeff;
+  outline-offset: 2px;
 }
 
 .overlay {
@@ -466,6 +599,9 @@
   right: 20px;
   bottom: 18px;
   z-index: 7;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   width: 300px;
   pointer-events: auto;
 }
@@ -1026,6 +1162,11 @@
   width: 300px;
 }
 
+/* Shared time series and the upper map's data sit just above the split. */
+.mapStack.mapStackComparisonUpper {
+  bottom: calc((1 - var(--comparison-split)) * 100% + 18px);
+}
+
 .mapData {
   pointer-events: auto;
   width: 100%;
@@ -1058,6 +1199,10 @@
 .mapDataHeaderEdit {
   padding: 8px 8px 8px 16px;
   cursor: default;
+}
+
+.mapDataHeaderSolo {
+  border-bottom: none;
 }
 
 .mapDataBackgroundBtn {

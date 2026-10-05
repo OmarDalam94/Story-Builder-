@@ -2145,6 +2145,81 @@
   width: min(560px, calc(100vw - 64px));
 }
 
+.panel.modal.comparisonModal {
+  width: min(1080px, calc(100vw - 64px));
+  height: min(760px, calc(100vh - 64px));
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.comparisonToolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: var(--space-xl) var(--space-2xl) 0;
+}
+
+.comparisonToolbar > .field {
+  width: 240px;
+}
+
+.comparisonToolbar .assetsSearch {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: var(--lc-ui-radius);
+}
+
+.comparisonScroll {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-xl) 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--lc-scrollbar-thumb) transparent;
+}
+
+.comparisonGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 var(--space-2xl);
+}
+
+.comparisonEmpty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: var(--space-3xl) 0;
+  color: var(--lc-text-tertiary);
+  font: var(--lc-font-body);
+  text-align: center;
+}
+
+.comparisonCard {
+  width: 100%;
+  aspect-ratio: 16 / 11;
+}
+
+.comparisonCard .assetCardImage {
+  pointer-events: none;
+}
+
+.comparisonCard .assetCardImage :global(.mapboxgl-ctrl-bottom-left) {
+  display: none;
+}
+
+.comparisonCard .assetCardTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .cardConfigNote {
   display: flex;
   align-items: flex-start;

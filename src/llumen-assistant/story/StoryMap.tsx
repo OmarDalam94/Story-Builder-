@@ -15,6 +15,7 @@ import {
   storySceneAt,
   type StorySceneState,
 } from './storyDemoScenes'
+import type { StoryCamera, StoryCameraLink } from './storyCameraLink'
 import styles from './StoryMap.module.css'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? ''
@@ -32,6 +33,7 @@ export type StoryMapLayerVisibility = {
 
 export type StoryMapProps = {
   className?: string
+  controlsClassName?: string
   layers?: StoryMapLayerVisibility
   /** Index of the demo scene (camera, columns, disks) to show. */
   sceneIndex?: number
@@ -41,6 +43,21 @@ export type StoryMapProps = {
   frameDuration?: number
   frameLinear?: boolean
   styleUrl?: string
+  /** Turn off for previews; also hides the zoom controls. */
+  interactive?: boolean
+  /** Applied once when the map mounts. */
+  cameraPadding?: mapboxgl.PaddingOptions
+  /** Added to each scene's zoom so small previews frame the same area. */
+  zoomOffset?: number
+  /**
+   * For a map taller than its clipping parent (anchored to the parent's top): pads the
+   * hidden bottom so the camera stays centered in the visible part without resizing.
+   */
+  fitParentHeight?: boolean
+  /** Shares the camera with the other maps on the same link. */
+  cameraLink?: StoryCameraLink
+  /** Off for maps that take their camera from a link instead of their own scene. */
+  flyToScene?: boolean
 }
 
 const DEFAULT_LAYERS: StoryMapLayerVisibility = {
@@ -177,13 +194,21 @@ function easeInOutCubic(t: number) {
 /** Full Mapbox story canvas. */
 export function StoryMap({
   className,
+  controlsClassName,
   layers = DEFAULT_LAYERS,
   sceneIndex = 0,
   framePhase = 0,
   frameDuration = 500,
   frameLinear = false,
   styleUrl = STORY_MAP_STYLE,
+  interactive = true,
+  cameraPadding = CAMERA_PADDING,
+  zoomOffset = 0,
+  fitParentHeight = false,
+  cameraLink,
+  flyToScene = true,
 }: StoryMapProps) {
+  const rootRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const handleRef = useRef<InteractiveMapHandle | null>(null)
@@ -197,6 +222,12 @@ export function StoryMap({
     sceneState(sceneAtPhase(storySceneAt(sceneIndex), framePhase)),
   )
   const tweenRef = useRef<number | null>(null)
+  const mountOptionsRef = useRef({ interactive, cameraPadding, zoomOffset, fitParentHeight })
+  const flyToSceneRef = useRef(flyToScene)
+
+  useEffect(() => {
+    flyToSceneRef.current = flyToScene
+  }, [flyToScene])
 
   useEffect(() => {
     layersRef.current = layers
@@ -211,27 +242,45 @@ export function StoryMap({
     if (!el || mapRef.current || !MAPBOX_TOKEN) return
 
     const { camera } = storySceneAt(sceneIndexRef.current)
+    const mountOptions = mountOptionsRef.current
     mapboxgl.accessToken = MAPBOX_TOKEN
     const map = new mapboxgl.Map({
       container: el,
       style: styleUrl,
       center: camera.center,
-      zoom: camera.zoom,
+      zoom: camera.zoom + mountOptions.zoomOffset,
       pitch: camera.pitch,
       bearing: camera.bearing,
       antialias: true,
       attributionControl: false,
+      interactive: mountOptions.interactive,
       dragPan: true,
       scrollZoom: true,
       touchZoomRotate: true,
       doubleClickZoom: true,
       keyboard: true,
     })
-    map.setPadding(CAMERA_PADDING)
+    map.setPadding(mountOptions.cameraPadding)
     mapRef.current = map
 
     const observer = new ResizeObserver(() => map.resize())
     observer.observe(el)
+
+    const root = rootRef.current
+    const parent = root?.parentElement
+    let parentObserver: ResizeObserver | null = null
+    if (mountOptions.fitParentHeight && root && parent) {
+      const { cameraPadding: padding } = mountOptions
+      let hidden = -1
+      parentObserver = new ResizeObserver(() => {
+        const next = Math.max(0, Math.round(root.clientHeight - parent.clientHeight))
+        if (next === hidden) return
+        hidden = next
+        map.setPadding({ ...padding, bottom: (padding.bottom ?? 0) + next })
+      })
+      parentObserver.observe(parent)
+      parentObserver.observe(root)
+    }
 
     map.on('load', () => {
       mountStoryLayers(map, displayedRef.current)
@@ -250,6 +299,7 @@ export function StoryMap({
 
     return () => {
       observer.disconnect()
+      parentObserver?.disconnect()
       if (tweenRef.current !== null) cancelAnimationFrame(tweenRef.current)
       map.remove()
       mapRef.current = null
@@ -257,6 +307,38 @@ export function StoryMap({
       setReady(false)
     }
   }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !cameraLink) return
+    const { zoomOffset: offset } = mountOptionsRef.current
+    let following = false
+    const read = (): StoryCamera => {
+      const center = map.getCenter()
+      return {
+        center: [center.lng, center.lat],
+        zoom: map.getZoom() - offset,
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      }
+    }
+    const follow = (camera: StoryCamera) => {
+      following = true
+      map.jumpTo({ ...camera, zoom: camera.zoom + offset })
+      following = false
+    }
+    const onMove = () => {
+      if (!following) cameraLink.publish(follow, read())
+    }
+    const shared = cameraLink.join(follow)
+    if (shared) follow(shared)
+    else cameraLink.publish(follow, read())
+    map.on('move', onMove)
+    return () => {
+      map.off('move', onMove)
+      cameraLink.leave(follow)
+    }
+  }, [cameraLink])
 
   useEffect(() => {
     const map = mapRef.current
@@ -273,8 +355,14 @@ export function StoryMap({
     appliedPhaseRef.current = framePhase
 
     const scene = storySceneAt(sceneIndex)
-    if (sceneChanged) {
-      map.flyTo({ ...scene.camera, duration: CAMERA_DURATION_MS, curve: 1.2, essential: true })
+    if (sceneChanged && flyToSceneRef.current) {
+      map.flyTo({
+        ...scene.camera,
+        zoom: scene.camera.zoom + mountOptionsRef.current.zoomOffset,
+        duration: CAMERA_DURATION_MS,
+        curve: 1.2,
+        essential: true,
+      })
     }
 
     if (tweenRef.current !== null) cancelAnimationFrame(tweenRef.current)
@@ -306,15 +394,17 @@ export function StoryMap({
   }, [ready, styleUrl])
 
   return (
-    <div className={[styles.root, className].filter(Boolean).join(' ')}>
+    <div ref={rootRef} className={[styles.root, className].filter(Boolean).join(' ')}>
       <div ref={containerRef} className={styles.canvas} />
-      <MapControls
-        className={styles.controls}
-        disabled={!ready}
-        onZoomIn={() => handleRef.current?.zoomIn()}
-        onZoomOut={() => handleRef.current?.zoomOut()}
-        onResetNorth={() => handleRef.current?.resetNorth()}
-      />
+      {interactive ? (
+        <MapControls
+          className={[styles.controls, controlsClassName].filter(Boolean).join(' ')}
+          disabled={!ready}
+          onZoomIn={() => handleRef.current?.zoomIn()}
+          onZoomOut={() => handleRef.current?.zoomOut()}
+          onResetNorth={() => handleRef.current?.resetNorth()}
+        />
+      ) : null}
     </div>
   )
 }

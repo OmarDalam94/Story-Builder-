@@ -10,11 +10,14 @@ export function ConfigSelect<T extends string>({
   value,
   options,
   onChange,
+  hideLabel = false,
 }: {
   label: string
   value: T
   options: { value: T; label: string }[]
   onChange: (value: T) => void
+  /** Keeps the label for screen readers only. */
+  hideLabel?: boolean
 }) {
   const labelId = useId()
   const menuId = useId()
@@ -65,7 +68,7 @@ export function ConfigSelect<T extends string>({
 
   return (
     <div className={styles.field}>
-      <span id={labelId} className={styles.label}>
+      <span id={labelId} className={hideLabel ? styles.visuallyHidden : styles.label}>
         {label}
       </span>
       <button

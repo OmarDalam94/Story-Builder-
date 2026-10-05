@@ -13,6 +13,7 @@ import {
   CaretDown,
   Check,
   Copy,
+  DotsSix,
   DotsThreeVertical,
   Export,
   Eye,
@@ -77,10 +78,13 @@ import {
   type StorySlide,
 } from './storyDemoData'
 import { StoryMap, STORY_MAP_STYLE, type StoryMapLayerVisibility } from './StoryMap'
+import { StoryComparisonModal } from './StoryComparisonModal'
+import { comparisonOptions, comparisonPhase, type ComparisonMapOption } from './storyComparison'
+import { createCameraLink } from './storyCameraLink'
 import type { StoryBackground } from './storyBackground'
 import { StoryBackgroundLayer } from './StoryBackgroundLayer'
 import { BackgroundSettings } from './StoryBackgroundSettings'
-import { sceneAtPhase, storySceneAt, type ColumnGlyphColors } from './storyDemoScenes'
+import { sceneAtPhase, storySceneAt, type ColumnGlyphColors, type StoryScene } from './storyDemoScenes'
 import { StoryTimeSeries } from './StoryTimeSeries'
 import {
   DEFAULT_SLIDE_TIMELINE,
@@ -123,6 +127,19 @@ function filterIcon(id: string) {
 }
 
 type StoryViewLayout = 'sidebar' | 'grid' | 'comparison'
+
+type ComparisonChoice = { option: ComparisonMapOption; layers: StoryMapLayerVisibility }
+type MapDataLayerKey = keyof StoryMapLayerVisibility
+
+/** Upper map share of the screen height. */
+const COMPARISON_SPLIT_DEFAULT = 0.5
+const COMPARISON_SPLIT_MIN = 0.25
+const COMPARISON_SPLIT_MAX = 0.8
+const COMPARISON_SPLIT_STEP = 0.05
+
+function clampSplit(value: number) {
+  return Math.min(COMPARISON_SPLIT_MAX, Math.max(COMPARISON_SPLIT_MIN, value))
+}
 
 const VIEW_LAYOUTS: { id: StoryViewLayout; label: string; icon: ComponentType<IconProps> }[] = [
   { id: 'sidebar', label: 'Sidebar', icon: Sidebar },
@@ -258,6 +275,25 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const [regeneratingSlideId, setRegeneratingSlideId] = useState<string | null>(null)
   const [layoutBySlide, setLayoutBySlide] = useState<Record<string, StoryViewLayout>>({})
   const [gridColumnsBySlide, setGridColumnsBySlide] = useState<Record<string, GridColumns>>({})
+  const [comparisonBySlide, setComparisonBySlide] = useState<Record<string, ComparisonChoice>>({})
+  const [comparisonPickerOpen, setComparisonPickerOpen] = useState(false)
+  const [comparisonLegendOpen, setComparisonLegendOpen] = useState({ upper: false, lower: false })
+  const [cameraLink] = useState(createCameraLink)
+  const [comparisonSplit, setComparisonSplit] = useState(COMPARISON_SPLIT_DEFAULT)
+  const [splitDragging, setSplitDragging] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  /** Live drag value; written straight to the CSS variable so the story view skips re-rendering. */
+  const splitDragRef = useRef<{ value: number; frame: number | null } | null>(null)
+
+  const endSplitDrag = () => {
+    const drag = splitDragRef.current
+    if (!drag) return
+    if (drag.frame !== null) cancelAnimationFrame(drag.frame)
+    splitDragRef.current = null
+    rootRef.current?.style.setProperty('--comparison-split', String(drag.value))
+    setComparisonSplit(drag.value)
+    setSplitDragging(false)
+  }
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false)
   const [layoutMenuPos, setLayoutMenuPos] = useState({ top: 0, left: 0 })
   const layoutMenuRef = useRef<HTMLButtonElement>(null)
@@ -333,6 +369,26 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const summaryConfig =
     cardPrefs.summary?.summary ?? defaultSummaryConfig(slide.chapterId, slide.id)
   const viewLayout = layoutBySlide[slide.id] ?? 'sidebar'
+  const comparisonMapOptions = comparisonOptions({
+    slides,
+    activeSlideIndex,
+    filters,
+    range: timelineRange,
+  })
+  const comparison: ComparisonChoice = comparisonBySlide[slide.id] ?? {
+    option: comparisonMapOptions[0],
+    layers: comparisonMapOptions[0].layers,
+  }
+  const comparisonFramePhase = comparisonPhase(framePhase, comparison.option)
+  const comparisonScene = useMemo(
+    () => sceneAtPhase(storySceneAt(comparison.option.sceneIndex), comparisonFramePhase),
+    [comparison.option.sceneIndex, comparisonFramePhase],
+  )
+  const toggleComparisonLayer = (key: MapDataLayerKey) =>
+    setComparisonBySlide((current) => ({
+      ...current,
+      [slide.id]: { ...comparison, layers: { ...comparison.layers, [key]: !comparison.layers[key] } },
+    }))
   const placedCards = INSIGHT_CARD_IDS.filter((id) => !cardPrefs[id]?.deleted).length
   const emptyGridCells = (GRID_ROWS - placedCards) * 2
 
@@ -659,6 +715,18 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     return () => window.clearInterval(timer)
   }, [autoplaying, presentationSettings.autoplay, presentationSettings.multiSlide, slides.length])
 
+  const backgroundButton = (
+    <button
+      type="button"
+      className={`${styles.mapDataBackgroundBtn}${editSection === 'map' ? ` ${styles.mapDataBackgroundBtnActive}` : ''}`}
+      aria-pressed={editSection === 'map'}
+      onClick={() => toggleSection('map')}
+    >
+      <MapTrifold size={16} weight="regular" aria-hidden />
+      Background
+    </button>
+  )
+
   const timeSeries = (
     <StoryTimeSeries
       range={timelineRange}
@@ -677,6 +745,137 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       onRangeChange={(rangeId) => updateTimeline(slide.id, (current) => withRange(current, rangeId))}
     />
   )
+
+  const toggleLayer = (key: MapDataLayerKey) =>
+    setLayers((current) => ({ ...current, [key]: !current[key] }))
+
+  const mapLegend = (
+    legend: StoryScene['legend'],
+    layerState: StoryMapLayerVisibility,
+    onToggle: (key: MapDataLayerKey) => void,
+    addLayer: boolean,
+  ) => (
+    <div className={styles.mapDataBody}>
+      <div className={styles.legendGroup}>
+        <div className={styles.legendHead}>
+          <p className={styles.legendSection}>Abu Dhabi Monitored Junctions</p>
+          <span className={styles.legendActions}>
+            <button type="button" className={styles.legendIconBtn} aria-label="Junction style">
+              <PaintBucket size={16} weight="regular" aria-hidden />
+            </button>
+            <button
+              type="button"
+              className={`${styles.legendIconBtn}${layerState.junctions ? '' : ` ${styles.legendIconOff}`}`}
+              aria-label="Toggle monitored junctions"
+              aria-pressed={layerState.junctions}
+              onClick={() => onToggle('junctions')}
+            >
+              {layerState.junctions ? (
+                <Eye size={16} weight="regular" aria-hidden />
+              ) : (
+                <EyeSlash size={16} weight="regular" aria-hidden />
+              )}
+            </button>
+          </span>
+        </div>
+        <div className={styles.legendRow}>
+          <span className={styles.legendMark}>
+            <i
+              className={styles.diskOther}
+              style={{
+                borderColor: legend.diskRing,
+                backgroundColor: `${legend.diskRing}1f`,
+              }}
+            />
+            Other
+          </span>
+          <span className={styles.legendCount}>
+            <AnimatedNumber value={legend.junctionCount} format={formatCount} />
+          </span>
+        </div>
+        <div className={styles.legendScale}>
+          <span>Low</span>
+          <span
+            className={styles.diskScale}
+            style={{ '--disk-scale': legend.diskScale } as CSSProperties}
+            aria-hidden
+          >
+            <i />
+            <i />
+            <i />
+          </span>
+          <span>High</span>
+        </div>
+      </div>
+      <div className={styles.legendGroup}>
+        <div className={styles.legendHead}>
+          <p className={styles.legendSection}>Abu Dhabi Value Distribution</p>
+          <span className={styles.legendActions}>
+            <button type="button" className={styles.legendIconBtn} aria-label="Distribution style">
+              <PaintBucket size={16} weight="regular" aria-hidden />
+            </button>
+            <button
+              type="button"
+              className={`${styles.legendIconBtn}${layerState.distribution ? '' : ` ${styles.legendIconOff}`}`}
+              aria-label="Toggle value distribution"
+              aria-pressed={layerState.distribution}
+              onClick={() => onToggle('distribution')}
+            >
+              {layerState.distribution ? (
+                <Eye size={16} weight="regular" aria-hidden />
+              ) : (
+                <EyeSlash size={16} weight="regular" aria-hidden />
+              )}
+            </button>
+          </span>
+        </div>
+        <div className={styles.legendScale}>
+          <span>Low</span>
+          <span className={styles.columnScale} aria-hidden>
+            <ColumnGlyph height={16} colors={legend.glyphs[0]} />
+            <ColumnGlyph height={24} colors={legend.glyphs[1]} />
+            <ColumnGlyph height={34} colors={legend.glyphs[2]} />
+          </span>
+          <span>High</span>
+        </div>
+      </div>
+      {addLayer ? (
+        <button
+          type="button"
+          className={`${styles.addMapLayerBtn}${editSection === 'layers' ? ` ${styles.addMapLayerBtnActive}` : ''}`}
+          aria-pressed={editSection === 'layers'}
+          onClick={() => toggleSection('layers')}
+        >
+          <Plus size={16} weight="bold" aria-hidden />
+          Map layer
+        </button>
+      ) : null}
+    </div>
+  )
+
+  /** Comparison maps: collapsible legend only; the background stays out of the comparison. */
+  const comparisonMapData = (
+    pane: 'upper' | 'lower',
+    legend: StoryScene['legend'],
+    layerState: StoryMapLayerVisibility,
+    onToggle: (key: MapDataLayerKey) => void,
+  ) => {
+    const open = comparisonLegendOpen[pane]
+    return (
+      <div className={styles.mapData}>
+        <button
+          type="button"
+          className={`${styles.mapDataHeader}${open ? '' : ` ${styles.mapDataHeaderSolo}`}`}
+          onClick={() => setComparisonLegendOpen((current) => ({ ...current, [pane]: !current[pane] }))}
+          aria-expanded={open}
+        >
+          <span>Map Data</span>
+          <CaretDown size={18} weight="regular" className={open ? undefined : styles.caretClosed} aria-hidden />
+        </button>
+        {open ? mapLegend(legend, layerState, onToggle, false) : null}
+      </div>
+    )
+  }
 
   const insightCards = (
     <>
@@ -756,17 +955,43 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   )
 
   return (
-    <div className={styles.root} aria-label={`${story.storyTitle} story`}>
-      <StoryMap
-        className={styles.map}
-        layers={layers}
-        sceneIndex={activeSlideIndex}
-        framePhase={framePhase}
-        frameDuration={timelinePlaying ? frameStepMs : 500}
-        frameLinear={timelinePlaying}
-        styleUrl={mapStyle.url}
-      />
-      {background.kind !== 'basemap' ? (
+    <div
+      ref={rootRef}
+      className={`${styles.root}${splitDragging ? ` ${styles.rootSplitDragging}` : ''}`}
+      style={{ '--comparison-split': comparisonSplit } as CSSProperties}
+      aria-label={`${story.storyTitle} story`}
+    >
+      <div className={`${styles.mapPane}${viewLayout === 'comparison' ? ` ${styles.mapPaneUpper}` : ''}`}>
+        <StoryMap
+          className={`${styles.map} ${styles.mapFullHeight}`}
+          fitParentHeight
+          layers={layers}
+          sceneIndex={activeSlideIndex}
+          framePhase={framePhase}
+          frameDuration={timelinePlaying ? frameStepMs : 500}
+          frameLinear={timelinePlaying}
+          styleUrl={mapStyle.url}
+          cameraLink={viewLayout === 'comparison' ? cameraLink : undefined}
+        />
+      </div>
+      {viewLayout === 'comparison' ? (
+        <section className={styles.mapPaneLower} aria-label={`Comparison map: ${comparison.option.title}`}>
+          <StoryMap
+            className={`${styles.map} ${styles.mapFullHeight}`}
+            fitParentHeight
+            layers={comparison.layers}
+            sceneIndex={comparison.option.sceneIndex}
+            framePhase={comparisonFramePhase}
+            frameDuration={timelinePlaying ? frameStepMs : 500}
+            frameLinear={timelinePlaying}
+            styleUrl={mapStyle.url}
+            controlsClassName={styles.comparisonControls}
+            cameraLink={cameraLink}
+            flyToScene={false}
+          />
+        </section>
+      ) : null}
+      {background.kind !== 'basemap' && viewLayout !== 'comparison' ? (
         <StoryBackgroundLayer
           background={background}
           onDuration={(duration) =>
@@ -947,6 +1172,58 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           )}
         </div>
 
+        {viewLayout === 'comparison' ? (
+          <header
+            className={`${styles.comparisonTitle}${slide.layout === 'sidebar' && slide.sidebarWidth === 'small' ? ` ${styles.comparisonTitleSmall}` : ''}`}
+            dir={presentationSettings.textDirection}
+          >
+            <p className={styles.storyTitle}>{comparison.option.eyebrow}</p>
+            <h2 className={styles.slideTitle}>{comparison.option.title}</h2>
+          </header>
+        ) : null}
+
+        {viewLayout === 'comparison' ? (
+          <div
+            className={`${styles.splitHandle}${splitDragging ? ` ${styles.splitHandleActive}` : ''}`}
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize comparison maps"
+            aria-valuemin={COMPARISON_SPLIT_MIN * 100}
+            aria-valuemax={COMPARISON_SPLIT_MAX * 100}
+            aria-valuenow={Math.round(comparisonSplit * 100)}
+            tabIndex={0}
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId)
+              splitDragRef.current = { value: comparisonSplit, frame: null }
+              setSplitDragging(true)
+            }}
+            onPointerMove={(event) => {
+              const drag = splitDragRef.current
+              const root = rootRef.current
+              if (!drag || !root) return
+              const rect = root.getBoundingClientRect()
+              drag.value = clampSplit((event.clientY - rect.top) / rect.height)
+              drag.frame ??= requestAnimationFrame(() => {
+                drag.frame = null
+                root.style.setProperty('--comparison-split', String(drag.value))
+              })
+            }}
+            onPointerUp={endSplitDrag}
+            onPointerCancel={endSplitDrag}
+            onDoubleClick={() => setComparisonSplit(COMPARISON_SPLIT_DEFAULT)}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+              event.preventDefault()
+              const step = event.key === 'ArrowUp' ? -COMPARISON_SPLIT_STEP : COMPARISON_SPLIT_STEP
+              setComparisonSplit((current) => clampSplit(current + step))
+            }}
+          >
+            <span className={styles.splitHandleGrip} aria-hidden>
+              <DotsSix size={16} weight="bold" />
+            </span>
+          </div>
+        ) : null}
+
         {editSection ? (
           <StoryEditPanel
             section={editSection}
@@ -1060,7 +1337,30 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           />
         ) : null}
 
-        {viewLayout === 'grid' ? <div className={styles.timelineDock}>{timeSeries}</div> : null}
+        {viewLayout === 'grid' ? (
+          <div className={styles.timelineDock}>
+            {timeSeries}
+            {storyMode === 'edit' ? (
+              <div className={styles.mapData}>
+                <div
+                  className={`${styles.mapDataHeader} ${styles.mapDataHeaderEdit}${
+                    background.kind === 'basemap' ? ` ${styles.mapDataHeaderSolo}` : ''
+                  }`}
+                >
+                  <span>Grid Background</span>
+                  {backgroundButton}
+                </div>
+                {background.kind !== 'basemap' ? (
+                  <BackgroundSettings
+                    background={background}
+                    onChange={setBackground}
+                    onReplace={() => toggleSection('map')}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {storyMode === 'edit' && viewLayout === 'grid' ? (
           <div className={styles.gridColumnsControl} role="radiogroup" aria-label="Grid width">
@@ -1081,6 +1381,17 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           </div>
         ) : null}
 
+        {viewLayout === 'comparison' ? (
+          <>
+            <div className={`${styles.mapStack} ${styles.mapStackComparisonUpper}`}>
+              {timeSeries}
+              {comparisonMapData('upper', scene.legend, layers, toggleLayer)}
+            </div>
+            <div className={styles.mapStack}>
+              {comparisonMapData('lower', comparisonScene.legend, comparison.layers, toggleComparisonLayer)}
+            </div>
+          </>
+        ) : (
         <div
           className={`${styles.mapStack}${viewLayout === 'grid' ? ` ${styles.mapStackUnderGrid}` : ''}`}
           aria-hidden={viewLayout === 'grid' || undefined}
@@ -1091,15 +1402,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             {storyMode === 'edit' ? (
               <div className={`${styles.mapDataHeader} ${styles.mapDataHeaderEdit}`}>
                 <span>{backgroundPanelTitle}</span>
-                <button
-                  type="button"
-                  className={`${styles.mapDataBackgroundBtn}${editSection === 'map' ? ` ${styles.mapDataBackgroundBtnActive}` : ''}`}
-                  aria-pressed={editSection === 'map'}
-                  onClick={() => toggleSection('map')}
-                >
-                  <MapTrifold size={16} weight="regular" aria-hidden />
-                  Background
-                </button>
+                {backgroundButton}
               </div>
             ) : (
               <button
@@ -1124,108 +1427,12 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 onReplace={() => toggleSection('map')}
               />
             ) : legendOpen || storyMode === 'edit' ? (
-              <div className={styles.mapDataBody}>
-                <div className={styles.legendGroup}>
-                  <div className={styles.legendHead}>
-                    <p className={styles.legendSection}>Abu Dhabi Monitored Junctions</p>
-                    <span className={styles.legendActions}>
-                      <button type="button" className={styles.legendIconBtn} aria-label="Junction style">
-                        <PaintBucket size={16} weight="regular" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.legendIconBtn}${layers.junctions ? '' : ` ${styles.legendIconOff}`}`}
-                        aria-label="Toggle monitored junctions"
-                        aria-pressed={layers.junctions}
-                        onClick={() => setLayers((current) => ({ ...current, junctions: !current.junctions }))}
-                      >
-                        {layers.junctions ? (
-                          <Eye size={16} weight="regular" aria-hidden />
-                        ) : (
-                          <EyeSlash size={16} weight="regular" aria-hidden />
-                        )}
-                      </button>
-                    </span>
-                  </div>
-                  <div className={styles.legendRow}>
-                    <span className={styles.legendMark}>
-                      <i
-                        className={styles.diskOther}
-                        style={{
-                          borderColor: scene.legend.diskRing,
-                          backgroundColor: `${scene.legend.diskRing}1f`,
-                        }}
-                      />
-                      Other
-                    </span>
-                    <span className={styles.legendCount}>
-                      <AnimatedNumber value={scene.legend.junctionCount} format={formatCount} />
-                    </span>
-                  </div>
-                  <div className={styles.legendScale}>
-                    <span>Low</span>
-                    <span
-                      className={styles.diskScale}
-                      style={{ '--disk-scale': scene.legend.diskScale } as CSSProperties}
-                      aria-hidden
-                    >
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                    <span>High</span>
-                  </div>
-                </div>
-                <div className={styles.legendGroup}>
-                  <div className={styles.legendHead}>
-                    <p className={styles.legendSection}>Abu Dhabi Value Distribution</p>
-                    <span className={styles.legendActions}>
-                      <button type="button" className={styles.legendIconBtn} aria-label="Distribution style">
-                        <PaintBucket size={16} weight="regular" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.legendIconBtn}${layers.distribution ? '' : ` ${styles.legendIconOff}`}`}
-                        aria-label="Toggle value distribution"
-                        aria-pressed={layers.distribution}
-                        onClick={() =>
-                          setLayers((current) => ({ ...current, distribution: !current.distribution }))
-                        }
-                      >
-                        {layers.distribution ? (
-                          <Eye size={16} weight="regular" aria-hidden />
-                        ) : (
-                          <EyeSlash size={16} weight="regular" aria-hidden />
-                        )}
-                      </button>
-                    </span>
-                  </div>
-                  <div className={styles.legendScale}>
-                    <span>Low</span>
-                    <span className={styles.columnScale} aria-hidden>
-                      <ColumnGlyph height={16} colors={scene.legend.glyphs[0]} />
-                      <ColumnGlyph height={24} colors={scene.legend.glyphs[1]} />
-                      <ColumnGlyph height={34} colors={scene.legend.glyphs[2]} />
-                    </span>
-                    <span>High</span>
-                  </div>
-                </div>
-                {storyMode === 'edit' ? (
-                  <button
-                    type="button"
-                    className={`${styles.addMapLayerBtn}${editSection === 'layers' ? ` ${styles.addMapLayerBtnActive}` : ''}`}
-                    aria-pressed={editSection === 'layers'}
-                    onClick={() => toggleSection('layers')}
-                  >
-                    <Plus size={16} weight="bold" aria-hidden />
-                    Map layer
-                  </button>
-                ) : null}
-              </div>
+              mapLegend(scene.legend, layers, toggleLayer, storyMode === 'edit')
             ) : null}
           </div>
           ) : null}
         </div>
+        )}
 
         <div className={styles.lowerNav} aria-label="Story navigation">
           {!agentOpen && onAsk ? (
@@ -1440,7 +1647,8 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                   aria-checked={selected}
                   className={selected ? styles.storyMenuSelected : undefined}
                   onClick={() => {
-                    setLayoutBySlide((current) => ({ ...current, [slide.id]: option.id }))
+                    if (option.id === 'comparison') setComparisonPickerOpen(true)
+                    else setLayoutBySlide((current) => ({ ...current, [slide.id]: option.id }))
                     setLayoutMenuOpen(false)
                   }}
                 >
@@ -1454,6 +1662,21 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           document.body,
         )
       : null}
+    {comparisonPickerOpen ? (
+      <StoryComparisonModal
+        options={comparisonMapOptions}
+        initialOptionId={comparison.option.id}
+        framePhase={framePhase}
+        styleUrl={mapStyle.url}
+        onClose={() => setComparisonPickerOpen(false)}
+        onApply={(option) => {
+          setComparisonBySlide((current) => ({ ...current, [slide.id]: { option, layers: option.layers } }))
+          setLayoutBySlide((current) => ({ ...current, [slide.id]: 'comparison' }))
+          setComparisonLegendOpen({ upper: false, lower: false })
+          setComparisonPickerOpen(false)
+        }}
+      />
+    ) : null}
     {storyMenuOpen
       ? createPortal(
           <div
