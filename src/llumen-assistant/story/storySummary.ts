@@ -1,12 +1,11 @@
 import type { CSSProperties } from 'react'
 
-export type SummaryScope = 'story' | 'chapter' | 'slide'
+export type SummaryScope = 'story' | 'slide'
 
 export type SummaryGradient = [string, string, string, string]
 
 export type SummaryConfig = {
   scope: SummaryScope
-  chapterId: string
   slideId: string
   accent: string
   gradient: SummaryGradient
@@ -16,7 +15,6 @@ export type SummaryConfig = {
 
 export const SUMMARY_SCOPES: { value: SummaryScope; label: string }[] = [
   { value: 'story', label: 'Story' },
-  { value: 'chapter', label: 'Chapter' },
   { value: 'slide', label: 'Slide' },
 ]
 
@@ -41,10 +39,9 @@ export const SUMMARY_SWATCHES = [
 
 export const SUMMARY_REGENERATE_MS = 1400
 
-export function defaultSummaryConfig(chapterId: string, slideId: string): SummaryConfig {
+export function defaultSummaryConfig(slideId: string): SummaryConfig {
   return {
     scope: 'slide',
-    chapterId,
     slideId,
     accent: '#ffffff',
     gradient: ['#70aeff', '#4fc3e8', '#ffffff', '#9ca3af'],

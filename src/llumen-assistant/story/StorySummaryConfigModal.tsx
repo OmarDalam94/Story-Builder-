@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { X } from '@phosphor-icons/react'
 import { ColorPicker } from './StoryColorPicker'
 import { ConfigSelect } from './StoryConfigSelect'
-import type { StoryChapter, StorySlide } from './storyDemoData'
+import type { StorySlide } from './storyDemoData'
 import {
   SUMMARY_SCOPES,
   gradientVars,
@@ -15,17 +15,13 @@ import styles from './StoryEditPanel.module.css'
 
 export function StorySummaryConfigModal({
   initial,
-  chapters,
   slides,
-  currentChapterId,
   currentSlideId,
   onSave,
   onClose,
 }: {
   initial: SummaryConfig
-  chapters: StoryChapter[]
   slides: StorySlide[]
-  currentChapterId: string
   currentSlideId: string
   onSave: (config: SummaryConfig) => void
   onClose: () => void
@@ -34,16 +30,10 @@ export function StorySummaryConfigModal({
   const patch = <K extends keyof SummaryConfig>(key: K, value: SummaryConfig[K]) =>
     setDraft((current) => ({ ...current, [key]: value }))
 
-  const chapterOptions = chapters.map((chapter) => ({
-    value: chapter.id,
-    label: chapter.id === currentChapterId ? `${chapter.title} (Current Chapter)` : chapter.title,
+  const slideOptions = slides.map((item) => ({
+    value: item.id,
+    label: item.id === currentSlideId ? `${item.title} (Current Slide)` : item.title,
   }))
-  const slideOptions = slides
-    .filter((item) => item.chapterId === draft.chapterId)
-    .map((item) => ({
-      value: item.id,
-      label: item.id === currentSlideId ? `${item.title} (Current Slide)` : item.title,
-    }))
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -87,24 +77,6 @@ export function StorySummaryConfigModal({
               options={SUMMARY_SCOPES}
               onChange={(value) => patch('scope', value)}
             />
-            {draft.scope !== 'story' ? (
-              <ConfigSelect
-                label="Target Chapter"
-                value={draft.chapterId}
-                options={chapterOptions}
-                onChange={(chapterId) =>
-                  setDraft((current) => {
-                    const chapterSlides = slides.filter((item) => item.chapterId === chapterId)
-                    const keep = chapterSlides.some((item) => item.id === current.slideId)
-                    return {
-                      ...current,
-                      chapterId,
-                      slideId: keep ? current.slideId : (chapterSlides[0]?.id ?? ''),
-                    }
-                  })
-                }
-              />
-            ) : null}
             {draft.scope === 'slide' && slideOptions.length > 0 ? (
               <ConfigSelect
                 label="Target Slide"

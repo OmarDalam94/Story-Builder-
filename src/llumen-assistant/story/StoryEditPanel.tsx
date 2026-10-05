@@ -53,7 +53,7 @@ import {
   type StoryBackground,
 } from './storyBackground'
 import { InlineColorPicker } from './StoryCustomColorPicker'
-import type { StoryChapter, StoryFilter, StorySlide } from './storyDemoData'
+import type { StoryFilter, StorySlide } from './storyDemoData'
 import styles from './StoryEditPanel.module.css'
 
 const SLIDE_THUMB_VARIANTS = ['map', 'chart', 'satellite'] as const
@@ -64,7 +64,6 @@ export type StoryEditPanelProps = {
   storyTitle: string
   storyDescription: string
   presentationSettings: StoryPresentationSettings
-  chapters: StoryChapter[]
   slides: StorySlide[]
   activeSlideIndex: number
   filters: StoryFilter[]
@@ -74,10 +73,7 @@ export type StoryEditPanelProps = {
   onSelectSlide: (index: number) => void
   onSlideChange: (slide: StorySlide) => void
   onFiltersChange: (filters: StoryFilter[]) => void
-  onAddChapter: () => void
-  onRenameChapter: (chapterId: string, title: string) => void
-  onDeleteChapter: (chapterId: string) => void
-  onAddSlide: (chapterId: string) => void
+  onAddSlide: () => void
   onDuplicateSlide: (slideId?: string) => void
   onDeleteSlide: (slideId: string) => void
   onDeleteSlides: () => void
@@ -96,7 +92,6 @@ export type StoryPresentationSettings = {
   darkLogoName: string
   lightLogoName: string
   textDirection: 'ltr' | 'rtl'
-  chapterSplash: boolean
   autoplay: boolean
   multiSlide: boolean
   pagesMode: boolean
@@ -106,7 +101,6 @@ export function StoryEditPanel({
   storyTitle,
   storyDescription,
   presentationSettings,
-  chapters,
   slides,
   activeSlideIndex,
   filters,
@@ -116,9 +110,6 @@ export function StoryEditPanel({
   onSelectSlide,
   onSlideChange,
   onFiltersChange,
-  onAddChapter,
-  onRenameChapter,
-  onDeleteChapter,
   onAddSlide,
   onDuplicateSlide,
   onDeleteSlide,
@@ -141,10 +132,7 @@ export function StoryEditPanel({
   }, [section, directSlideEditor])
 
   const slide = slides[activeSlideIndex]
-  const slideChapter = chapters.find((chapter) => chapter.id === slide?.chapterId)
-  const chapterSlides = slides.filter((item) => item.chapterId === slide?.chapterId)
-  const slideNumber = chapterSlides.findIndex((item) => item.id === slide?.id) + 1
-  const slideHeading = `${slideChapter?.title ?? 'Chapter'} / Slide ${Math.max(slideNumber, 1)}`
+  const slideHeading = `Slide ${activeSlideIndex + 1}`
   const modalTitle =
     section === 'story'
       ? 'Story Configuration'
@@ -333,7 +321,6 @@ export function StoryEditPanel({
             />
           ) : (
             <SlidesOverview
-              chapters={chapters}
               slides={slides}
               activeSlideIndex={activeSlideIndex}
               onEditSlide={(index) => {
@@ -343,9 +330,6 @@ export function StoryEditPanel({
               }}
               onDuplicateSlide={onDuplicateSlide}
               onDeleteSlide={(slideId) => onDeleteSlide(slideId)}
-              onAddChapter={onAddChapter}
-              onRenameChapter={onRenameChapter}
-              onDeleteChapter={onDeleteChapter}
               onAddSlide={onAddSlide}
               multiSlide={presentationSettings.multiSlide}
             />
@@ -1109,11 +1093,6 @@ function MainContentTab({
         </div>
       </div>
       <SettingToggle
-        label="Enable Chapter Splash Screen"
-        checked={presentationSettings.chapterSplash}
-        onChange={(checked) => patchSettings('chapterSplash', checked)}
-      />
-      <SettingToggle
         label="Enable Autoplay Button"
         checked={presentationSettings.autoplay}
         onChange={(checked) => patchSettings('autoplay', checked)}
@@ -1205,32 +1184,22 @@ function SettingToggle({
 }
 
 function SlidesOverview({
-  chapters,
   slides,
   activeSlideIndex,
   onEditSlide,
   onDuplicateSlide,
   onDeleteSlide,
-  onAddChapter,
-  onRenameChapter,
-  onDeleteChapter,
   onAddSlide,
   multiSlide,
 }: {
-  chapters: StoryChapter[]
   slides: StorySlide[]
   activeSlideIndex: number
   onEditSlide: (index: number) => void
   onDuplicateSlide: (slideId?: string) => void
   onDeleteSlide: (slideId: string) => void
-  onAddChapter: () => void
-  onRenameChapter: (chapterId: string, title: string) => void
-  onDeleteChapter: (chapterId: string) => void
-  onAddSlide: (chapterId: string) => void
+  onAddSlide: () => void
   multiSlide: boolean
 }) {
-  const [editingChapterId, setEditingChapterId] = useState<string | null>(null)
-  const [chapterDraft, setChapterDraft] = useState('')
   const [menuSlideId, setMenuSlideId] = useState<string | null>(null)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const menuButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -1273,174 +1242,81 @@ function SlidesOverview({
       window.removeEventListener('scroll', onLayout, true)
     }
   }, [menuSlideId, placeSlideMenu])
-  const cancelChapterRename = useRef(false)
-
-  const commitChapterName = () => {
-    if (cancelChapterRename.current) {
-      cancelChapterRename.current = false
-      return
-    }
-    if (!editingChapterId) return
-    const title = chapterDraft.trim()
-    if (title) onRenameChapter(editingChapterId, title)
-    setEditingChapterId(null)
-  }
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeading}>
         <div>
-          <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Chapters</h3>
+          <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Slides</h3>
         </div>
         {multiSlide ? (
-          <button type="button" className={styles.addBtn} onClick={onAddChapter}>
+          <button type="button" className={styles.addBtn} onClick={onAddSlide}>
             <Plus size={15} weight="bold" aria-hidden />
-            Add chapter
+            Add slide
           </button>
         ) : null}
       </div>
-      <div className={styles.chapterList}>
-        {chapters.map((chapter) => {
-          const chapterSlides = slides
-            .map((item, index) => ({ item, index }))
-            .filter(({ item }) => item.chapterId === chapter.id)
+      <div className={styles.slideList}>
+        {slides.map((item, index) => {
+          const thumbnail = storyThumbLayers(
+            SLIDE_THUMB_VARIANTS[index % SLIDE_THUMB_VARIANTS.length],
+          )
           return (
-            <div key={chapter.id} className={styles.chapterGroup}>
-              <div className={styles.chapterHeading}>
-                <div className={styles.chapterTitleGroup}>
-                  {editingChapterId === chapter.id ? (
-                    <input
-                      className={styles.chapterTitleInput}
-                      value={chapterDraft}
-                      aria-label={`Chapter name for ${chapter.title}`}
-                      autoFocus
-                      maxLength={80}
-                      onChange={(event) => setChapterDraft(event.target.value)}
-                      onBlur={commitChapterName}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Escape') {
-                          event.stopPropagation()
-                          cancelChapterRename.current = true
-                          setEditingChapterId(null)
-                          return
-                        }
-                        if (event.key === 'Enter') {
-                          event.preventDefault()
-                          commitChapterName()
-                        }
-                      }}
-                    />
-                  ) : (
-                    <>
-                      <h4 className={styles.chapterTitle}>{chapter.title}</h4>
-                      <button
-                        type="button"
-                        className={`${styles.slideActionBtn} ${styles.chapterEditBtn}`}
-                        onClick={() => {
-                          setEditingChapterId(chapter.id)
-                          setChapterDraft(chapter.title)
-                        }}
-                        aria-label={`Edit ${chapter.title}`}
-                        title="Edit chapter name"
-                      >
-                        <PencilSimple size={15} aria-hidden />
-                      </button>
-                    </>
-                  )}
-                </div>
-                {multiSlide && chapters.length > 1 ? (
-                  <button
-                    type="button"
-                    className={`${styles.slideActionBtn} ${styles.slideActionDanger}`}
-                    onClick={() => onDeleteChapter(chapter.id)}
-                    aria-label={`Delete ${chapter.title}`}
-                    title="Delete chapter"
-                  >
-                    <Trash size={15} aria-hidden />
-                  </button>
-                ) : null}
-              </div>
-              <div className={styles.slideList}>
-                {chapterSlides.map(({ item, index }, chapterIndex) => {
-                  const thumbnail = storyThumbLayers(
-                    SLIDE_THUMB_VARIANTS[index % SLIDE_THUMB_VARIANTS.length],
-                  )
-                  return (
-                    <div
-                      key={item.id}
-                      className={`${styles.slideItem}${
-                        index === activeSlideIndex ? ` ${styles.slideItemActive}` : ''
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        className={styles.slideItemSelect}
-                        onClick={() => onEditSlide(index)}
-                        aria-current={index === activeSlideIndex ? 'true' : undefined}
-                        aria-label={`Edit slide ${chapterIndex + 1}: ${item.title}`}
-                      >
-                        <span className={styles.slideThumbnail} aria-hidden>
-                          <span className={styles.slideThumbnailLayers}>
-                            <img src={thumbnail.image} alt="" />
-                            {thumbnail.overlay ? <img src={thumbnail.overlay} alt="" /> : null}
-                          </span>
-                        </span>
-                        <span className={styles.slideItemMeta}>
-                          <span className={styles.slideItemCopy}>
-                            <span className={styles.slideTitleLine}>
-                              <span className={styles.slideNumber}>{chapterIndex + 1}.</span>
-                              <span className={styles.slideItemTitle}>{item.title}</span>
-                            </span>
-                            <span className={styles.slideItemDetails}>
-                              <span>{item.layout === 'sidebar' ? 'Sidebar' : 'Full width'}</span>
-                              {item.layout === 'sidebar' ? (
-                                <span>
-                                  {item.sidebarWidth === 'small' ? 'Small sidebar' : 'Large sidebar'}
-                                </span>
-                              ) : null}
-                              <span>{item.focusLayout ? 'Focus on' : 'Focus off'}</span>
-                            </span>
-                          </span>
-                        </span>
-                      </button>
-                      {multiSlide ? (
-                        <div className={styles.slideItemActions}>
-                          <button
-                            type="button"
-                            className={`${styles.slideMenuBtn}${
-                              menuSlideId === item.id ? ` ${styles.slideMenuBtnOpen}` : ''
-                            }`}
-                            aria-label={`Actions for ${item.title}`}
-                            aria-haspopup="menu"
-                            aria-expanded={menuSlideId === item.id}
-                            onClick={(event) => {
-                              const button = event.currentTarget
-                              if (menuSlideId === item.id) {
-                                setMenuSlideId(null)
-                                return
-                              }
-                              menuButtonRef.current = button
-                              placeSlideMenu(button)
-                              setMenuSlideId(item.id)
-                            }}
-                          >
-                            <DotsThreeVertical size={18} weight="bold" aria-hidden />
-                          </button>
-                        </div>
+            <div
+              key={item.id}
+              className={`${styles.slideItem}${index === activeSlideIndex ? ` ${styles.slideItemActive}` : ''}`}
+            >
+              <button
+                type="button"
+                className={styles.slideItemSelect}
+                onClick={() => onEditSlide(index)}
+                aria-current={index === activeSlideIndex ? 'true' : undefined}
+                aria-label={`Edit slide ${index + 1}: ${item.title}`}
+              >
+                <span className={styles.slideThumbnail} aria-hidden>
+                  <span className={styles.slideThumbnailLayers}>
+                    <img src={thumbnail.image} alt="" />
+                    {thumbnail.overlay ? <img src={thumbnail.overlay} alt="" /> : null}
+                  </span>
+                </span>
+                <span className={styles.slideItemMeta}>
+                  <span className={styles.slideItemCopy}>
+                    <span className={styles.slideTitleLine}>
+                      <span className={styles.slideNumber}>{index + 1}.</span>
+                      <span className={styles.slideItemTitle}>{item.title}</span>
+                    </span>
+                    <span className={styles.slideItemDetails}>
+                      <span>{item.layout === 'sidebar' ? 'Sidebar' : 'Full width'}</span>
+                      {item.layout === 'sidebar' ? (
+                        <span>{item.sidebarWidth === 'small' ? 'Small sidebar' : 'Large sidebar'}</span>
                       ) : null}
-                    </div>
-                  )
-                })}
-                {multiSlide ? (
+                      <span>{item.focusLayout ? 'Focus on' : 'Focus off'}</span>
+                    </span>
+                  </span>
+                </span>
+              </button>
+              {multiSlide ? (
+                <div className={styles.slideItemActions}>
                   <button
                     type="button"
-                    className={styles.addSlideRow}
-                    onClick={() => onAddSlide(chapter.id)}
+                    className={`${styles.slideMenuBtn}${menuSlideId === item.id ? ` ${styles.slideMenuBtnOpen}` : ''}`}
+                    aria-label={`Actions for ${item.title}`}
+                    aria-haspopup="menu"
+                    aria-expanded={menuSlideId === item.id}
+                    onClick={(event) => {
+                      const button = event.currentTarget
+                      if (menuSlideId === item.id) {
+                        setMenuSlideId(null)
+                        return
+                      }
+                      menuButtonRef.current = button
+                      placeSlideMenu(button)
+                      setMenuSlideId(item.id)
+                    }}
                   >
-                    <Plus size={16} weight="bold" aria-hidden />
-                    Add slide
+                    <DotsThreeVertical size={18} weight="bold" aria-hidden />
                   </button>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
             </div>
           )
         })}
@@ -2033,7 +1909,7 @@ function SlideEditor({
               <div className={styles.filterActions}>
                 <button
                   type="button"
-                  className={`${styles.slideActionBtn} ${styles.chapterEditBtn}`}
+                  className={`${styles.slideActionBtn} ${styles.inlineEditBtn}`}
                   aria-label={`Edit filter ${index + 1}`}
                   title="Edit filter"
                   onClick={() => setEditingFilterId(filter.id)}

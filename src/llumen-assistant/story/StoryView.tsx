@@ -2,7 +2,16 @@
  * Landing Story content type — Figma slide-landing-screen-map (3359:3802).
  * Full-page main content (not agent subcontext). Map from llumen-map-legend layers.
  */
-import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react'
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowLeft,
@@ -36,6 +45,7 @@ import {
   Sidebar,
   Student,
   SquaresFour,
+  Toolbox,
   Trash,
   X,
   type IconProps,
@@ -74,7 +84,6 @@ import {
   getLandingStory,
   type LandingStory,
   type StoryFilter,
-  type StoryChapter,
   type StorySlide,
 } from './storyDemoData'
 import { StoryMap, STORY_MAP_STYLE, type StoryMapLayerVisibility } from './StoryMap'
@@ -219,7 +228,6 @@ function makePresentationSettings(): StoryPresentationSettings {
     darkLogoName: '',
     lightLogoName: '',
     textDirection: 'ltr',
-    chapterSplash: false,
     autoplay: false,
     multiSlide: true,
     pagesMode: false,
@@ -234,9 +242,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const [autoplaying, setAutoplaying] = useState(false)
   const [slideIndex, setSlideIndex] = useState(0)
   const [pageRename, setPageRename] = useState<{ slideId: string; title: string } | null>(null)
-  const [chapters, setChapters] = useState<StoryChapter[]>(() =>
-    story.chapters.map((chapter) => ({ ...chapter })),
-  )
+  const chapters = story.chapters
   const [slides, setSlides] = useState<StorySlide[]>(() => story.slides.map(copySlide))
   const [filtersBySlide, setFiltersBySlide] = useState<Record<string, StoryFilter[]>>(() =>
     makeFilterMap(story.slides, story.filters),
@@ -386,7 +392,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   }
 
   const summaryConfig =
-    cardPrefs.summary?.summary ?? defaultSummaryConfig(slide.chapterId, slide.id)
+    cardPrefs.summary?.summary ?? defaultSummaryConfig(slide.id)
   const viewLayout = layoutBySlide[slide.id] ?? 'sidebar'
   const comparisonMapOptions = comparisonOptions({
     slides,
@@ -608,7 +614,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             aria-controls={menuOpen ? 'insight-card-menu' : undefined}
             onClick={(event) => toggleCardMenu(id, event.currentTarget)}
           >
-            <DotsThreeVertical size={16} weight="bold" aria-hidden />
+            <DotsThreeVertical size={20} weight="bold" aria-hidden />
           </button>
         ) : null}
       </section>
@@ -1003,24 +1009,24 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             {list.length > 0 ? <span className={styles.filterDivider} aria-hidden /> : null}
           </>
         ) : null}
-        {list.map((f) => (
-          <span
-            key={f.id}
-            className={`${styles.filterPill}${storyMode === 'edit' ? ` ${styles.filterPillEditing}` : ''}`}
-          >
-            {filterIcon(f.id)}
-            <span>{f.label}</span>
-            {storyMode === 'edit' ? (
-              <button
-                type="button"
-                className={styles.filterRemove}
-                aria-label={`Remove ${f.label}`}
-                onClick={() => onRemove(f.id)}
-              >
-                <X size={12} weight="bold" aria-hidden />
-              </button>
-            ) : null}
-          </span>
+        {list.map((f, index) => (
+          <Fragment key={f.id}>
+            <span className={`${styles.filterPill}${storyMode === 'edit' ? ` ${styles.filterPillEditing}` : ''}`}>
+              {filterIcon(f.id)}
+              <span>{f.label}</span>
+              {storyMode === 'edit' ? (
+                <button
+                  type="button"
+                  className={styles.filterRemove}
+                  aria-label={`Remove ${f.label}`}
+                  onClick={() => onRemove(f.id)}
+                >
+                  <X size={12} weight="bold" aria-hidden />
+                </button>
+              ) : null}
+            </span>
+            {f.id === 'year' && index < list.length - 1 ? <span className={styles.filterDivider} aria-hidden /> : null}
+          </Fragment>
         ))}
       </div>
     )
@@ -1509,7 +1515,6 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             storyTitle={storyTitle}
             storyDescription={storyDescription}
             presentationSettings={presentationSettings}
-            chapters={chapters}
             slides={slides}
             activeSlideIndex={activeSlideIndex}
             filters={editingLowerFilters ? lowerFilters : filters}
@@ -1530,34 +1535,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 ? setLowerFilters(() => nextFilters)
                 : setFiltersBySlide((current) => ({ ...current, [slide.id]: nextFilters }))
             }
-            onAddChapter={() => {
-              const id = `${story.id}-chapter-${Date.now()}`
-              setChapters((items) => [...items, { id, title: `Chapter ${items.length + 1}` }])
-            }}
-            onRenameChapter={(chapterId, title) => {
-              setChapters((items) =>
-                items.map((item) => (item.id === chapterId ? { ...item, title } : item)),
-              )
-            }}
-            onDeleteChapter={(chapterId) => {
-              if (chapters.length === 1) return
-              const remaining = slides.filter((item) => item.chapterId !== chapterId)
-              if (remaining.length === 0) return
-              const removedIds = new Set(
-                slides.filter((item) => item.chapterId === chapterId).map((item) => item.id),
-              )
-              setChapters((items) => items.filter((item) => item.id !== chapterId))
-              setSlides(remaining)
-              setFiltersBySlide((current) => {
-                const next = { ...current }
-                removedIds.forEach((id) => delete next[id])
-                return next
-              })
-              if (removedIds.has(slide.id)) {
-                setSlideIndex(0)
-              }
-            }}
-            onAddSlide={(chapterId) => addSlide(chapterId)}
+            onAddSlide={() => addSlide(slide.chapterId)}
             onDuplicateSlide={(slideId) => {
               const source = slides.find((item) => item.id === slideId) ?? slide
               if (!source) return
@@ -1849,7 +1827,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                     className={`${styles.modeAction}${editSection === 'tools' ? ` ${styles.modeActionActive}` : ''}`}
                     onClick={() => toggleSection('tools')}
                   >
-                    <Plus size={18} weight="bold" aria-hidden />
+                    <Toolbox size={18} weight="regular" aria-hidden />
                     Tools
                   </button>
                   <button
@@ -2097,9 +2075,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         <StorySummaryConfigModal
           key={`${openCardConfig.slideId}-summary`}
           initial={summaryConfig}
-          chapters={chapters}
           slides={slides}
-          currentChapterId={slide.chapterId}
           currentSlideId={slide.id}
           onSave={(summary) => {
             updateCard('summary', { summary })

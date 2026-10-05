@@ -855,6 +855,15 @@
   top: 10px;
   right: 10px;
   z-index: 1;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.insightCardMenuBtn:hover,
+.insightCardMenuBtn.storyMenuBtnOpen {
+  border-color: transparent;
+  background: transparent;
 }
 
 .insightCardHidden {
