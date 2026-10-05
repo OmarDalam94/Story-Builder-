@@ -150,7 +150,7 @@
 
 .chartCursor {
   left: calc(var(--progress) * 100%);
-  background: repeating-linear-gradient(to bottom, #fff 0 4px, transparent 4px 8px);
+  background: #fff;
   transition: left var(--thumb-transition);
 }
 
@@ -345,16 +345,20 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 16px;
+  height: 20px;
   margin-top: 8px;
 }
 
 .date {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
-  line-height: 16px;
+  line-height: 20px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.date strong {
+  font-weight: 700;
 }
 
 .funnelBtn {
@@ -363,7 +367,7 @@
   justify-content: center;
   width: 24px;
   height: 24px;
-  margin: -4px;
+  margin: -4px -4px -4px auto;
   padding: 0;
   border: none;
   border-radius: 999px;

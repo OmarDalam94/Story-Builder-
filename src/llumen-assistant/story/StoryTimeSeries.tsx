@@ -145,6 +145,7 @@ export function StoryTimeSeries({
   const lastFrame = frameCount - 1
   const progress = lastFrame > 0 ? frame / lastFrame : 0
   const dateText = formatFrameDate(timelineFrameDate(granularity, frameCount, frame))
+  const [dateLabel, timeLabel] = dateText.split(', ')
   const granularityIndex = TIMELINE_GRANULARITIES.indexOf(granularity)
 
   useEffect(() => {
@@ -514,7 +515,9 @@ export function StoryTimeSeries({
       </div>
 
       <div className={styles.dateRow}>
-        <span className={styles.date}>{dateText}</span>
+        <span className={styles.date}>
+          {dateLabel}, <strong>{timeLabel}</strong>
+        </span>
         <button
           ref={datesBtnRef}
           type="button"
