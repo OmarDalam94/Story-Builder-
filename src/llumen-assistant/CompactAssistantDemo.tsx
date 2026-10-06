@@ -45,6 +45,7 @@ import {
 import { StoryView } from './story/StoryView'
 import type { StoryAiSnapshot, StoryMapCapture } from './story/storyAiScenarios'
 import { StoryMapStatesContext, type StoryMapStates } from './story/storyMapStates'
+import { StoryAiModeBar, type StoryAiModeStatus } from './story/StoryAiModeBar'
 import type { LandingStory } from './story/storyDemoData'
 import {
   MESH_COLORS_DEMO_PAGE,
@@ -62,8 +63,11 @@ import { SessionsPanel } from './SessionsPanel'
 import {
   conversationSummary,
   loadConversations,
+  loadStoryVersions,
   mapStateIds,
+  sameStorySnapshot,
   storeConversations,
+  storeStoryVersions,
   type SavedChatMessage,
   type SavedConversation,
 } from './savedConversations'
@@ -97,6 +101,8 @@ import { useStickToBottomScroll } from './useStickToBottomScroll'
 type ChatMessage = SavedChatMessage
 
 const SUBCONTEXT_EXIT_MS = 280
+/** How long the AI mode bar's Update button spins before the story version is stored. */
+const STORY_UPDATE_MS = 1200
 
 /** Design-capture presets via `?preview=<name>` (used for Figma handoff). */
 type FigmaPreviewMode =
@@ -339,7 +345,14 @@ export function CompactAssistantDemo() {
     token: number
     snapshot: StoryAiSnapshot | null
     storyId: string | null
-  }>({ token: 0, snapshot: null, storyId: null })
+    /** Conversation whose prompts produced `snapshot`; reopened from the AI mode bar. */
+    conversationId: string | null
+  }>({ token: 0, snapshot: null, storyId: null, conversationId: null })
+  const [storyVersions, setStoryVersions] = useState<Record<string, StoryAiSnapshot>>(loadStoryVersions)
+  /** Update in progress: the bar spins before `snapshot` becomes the story's saved version. */
+  const [storyUpdate, setStoryUpdate] = useState<{ storyId: string; snapshot: StoryAiSnapshot } | null>(null)
+  /** Story whose AI mode bar is showing; it stays up until the story is closed. */
+  const [aiBarStoryId, setAiBarStoryId] = useState<string | null>(null)
   /** Map screenshots + cameras behind each reply's map-state card. */
   const [mapCaptures, setMapCaptures] = useState<Record<string, StoryMapCapture>>({})
   const [activeMapStateId, setActiveMapStateId] = useState<string | null>(null)
@@ -722,11 +735,12 @@ export function CompactAssistantDemo() {
   /** Story select mode already applied its map/panel changes; show the exchange in the rail. */
   const submitStorySelection = useCallback(
     ({ prompt, reply, snapshot }: { prompt: string; reply: AssistantReplyPayload; snapshot: StoryAiSnapshot }) => {
-      setStoryAi((current) => ({ ...current, snapshot, storyId: activeStoryId }))
+      const conversationId = activeConversationId ?? uid()
+      setStoryAi((current) => ({ ...current, snapshot, storyId: activeStoryId, conversationId }))
       setActiveMapStateId(
         mapStateIds([{ id: '', role: 'assistant', text: '', reply }])[0] ?? null,
       )
-      setActiveConversationId((id) => id ?? uid())
+      setActiveConversationId(conversationId)
       clearStream()
       setStorySelectMode(false)
       setLandingChips([])
@@ -740,7 +754,7 @@ export function CompactAssistantDemo() {
       setMessages((m) => [...m, { id: uid(), role: 'user', text: prompt }])
       startAssistantReply(reply)
     },
-    [activeStoryId, clearStream, messages, startAssistantReply],
+    [activeConversationId, activeStoryId, clearStream, messages, startAssistantReply],
   )
 
   useEffect(() => {
@@ -950,13 +964,12 @@ export function CompactAssistantDemo() {
     setStorySelectMode(false)
     setActiveConversationId(null)
     setActiveMapStateId(null)
-    setStoryAi((current) => ({ token: current.token + 1, snapshot: null, storyId: null }))
+    setStoryAi((current) => ({ token: current.token + 1, snapshot: null, storyId: null, conversationId: null }))
   }, [clearStream, closeSubcontextImmediately])
 
-  const openSession = useCallback(
-    (id: string) => {
-      const saved = conversations.find((item) => item.id === id)
-      if (!saved) return
+  /** Puts a saved conversation in the rail without touching the story. */
+  const loadConversation = useCallback(
+    (saved: SavedConversation) => {
       clearStream()
       setMessages(saved.messages)
       setSettledReplyIds(new Set(saved.messages.filter((msg) => msg.role === 'assistant').map((msg) => msg.id)))
@@ -969,16 +982,30 @@ export function CompactAssistantDemo() {
       setStorySelectMode(false)
       setActiveConversationId(saved.id)
       if (saved.mapCaptures) setMapCaptures((current) => ({ ...current, ...saved.mapCaptures }))
-      setActiveMapStateId(saved.story ? (mapStateIds(saved.messages).at(-1) ?? null) : null)
-      if (saved.storyId) setActiveStoryId(saved.storyId)
-      setStoryAi((current) => ({ token: current.token + 1, snapshot: saved.story, storyId: saved.storyId }))
       if (isHub) {
         setHubRailMode('thread')
         setSessionsOpen(false)
         setLandingChips([])
       }
     },
-    [conversations, clearStream, closeSubcontextImmediately, isHub],
+    [clearStream, closeSubcontextImmediately, isHub],
+  )
+
+  const openSession = useCallback(
+    (id: string) => {
+      const saved = conversations.find((item) => item.id === id)
+      if (!saved) return
+      loadConversation(saved)
+      setActiveMapStateId(saved.story ? (mapStateIds(saved.messages).at(-1) ?? null) : null)
+      if (saved.storyId) setActiveStoryId(saved.storyId)
+      setStoryAi((current) => ({
+        token: current.token + 1,
+        snapshot: saved.story,
+        storyId: saved.storyId,
+        conversationId: saved.id,
+      }))
+    },
+    [conversations, loadConversation],
   )
 
   const storeMapCapture = useCallback((stateId: string, capture: StoryMapCapture) => {
@@ -999,11 +1026,55 @@ export function CompactAssistantDemo() {
           token: current.token + 1,
           snapshot: { ...snapshot, camera: mapCaptures[stateId]?.camera },
           storyId,
+          conversationId: activeConversationId ?? current.conversationId,
         }))
       },
     }),
-    [mapCaptures, activeMapStateId, activeStoryId, storyAi.storyId],
+    [mapCaptures, activeMapStateId, activeStoryId, activeConversationId, storyAi.storyId],
   )
+
+  useEffect(() => {
+    storeStoryVersions(storyVersions)
+  }, [storyVersions])
+
+  const resetStoryAi = useCallback(() => {
+    setStorySelectMode(false)
+    setActiveMapStateId(null)
+    setStoryAi((current) => ({ ...current, token: current.token + 1, snapshot: null }))
+  }, [])
+
+  const updateStoryAi = useCallback(() => {
+    const snapshot = storyAi.snapshot
+    if (!activeStoryId || !snapshot) return
+    setStoryUpdate({ storyId: activeStoryId, snapshot })
+  }, [activeStoryId, storyAi.snapshot])
+
+  useEffect(() => {
+    if (!storyUpdate) return
+    const timer = window.setTimeout(() => {
+      setStoryVersions((current) => ({ ...current, [storyUpdate.storyId]: storyUpdate.snapshot }))
+      setStoryUpdate(null)
+    }, STORY_UPDATE_MS)
+    return () => window.clearTimeout(timer)
+  }, [storyUpdate])
+
+  const storyConversationOpen = open && hubRailMode === 'thread' && messages.length > 0
+
+  const toggleStoryConversation = useCallback(() => {
+    if (storyConversationOpen) {
+      setOpen(false)
+      return
+    }
+    if (messages.length === 0 && storyAi.conversationId) {
+      const saved = conversations.find((item) => item.id === storyAi.conversationId)
+      if (saved) loadConversation(saved)
+    }
+    setLandingChips([])
+    setHubRailMode('thread')
+    setSessionsOpen(false)
+    setOpen(true)
+    setExpanded(false)
+  }, [storyConversationOpen, messages.length, storyAi.conversationId, conversations, loadConversation])
 
   const deleteSession = useCallback(
     (id: string) => {
@@ -1250,6 +1321,30 @@ export function CompactAssistantDemo() {
   }, [messages])
 
   const storyActive = activeStoryId != null
+  const savedStoryVersion = activeStoryId ? (storyVersions[activeStoryId] ?? null) : null
+  const ownsActiveStory = storyAi.storyId === null || storyAi.storyId === activeStoryId
+  const storyAiSnapshot = (ownsActiveStory ? storyAi.snapshot : null) ?? savedStoryVersion
+  const storyAiState = useMemo(
+    () => ({ token: storyAi.token, snapshot: storyAiSnapshot }),
+    [storyAi.token, storyAiSnapshot],
+  )
+  const storyHasUnsavedAi =
+    ownsActiveStory && storyAi.snapshot !== null && !sameStorySnapshot(storyAi.snapshot, savedStoryVersion)
+  if (activeStoryId && aiBarStoryId !== activeStoryId && (storyHasUnsavedAi || savedStoryVersion)) {
+    setAiBarStoryId(activeStoryId)
+  } else if (aiBarStoryId !== null && aiBarStoryId !== activeStoryId) {
+    setAiBarStoryId(null)
+  }
+  const storyBarStatus: StoryAiModeStatus | null =
+    !activeStoryId || aiBarStoryId !== activeStoryId
+      ? null
+      : storyUpdate?.storyId === activeStoryId
+        ? 'updating'
+        : storyHasUnsavedAi
+          ? 'unsaved'
+          : storyAiSnapshot
+            ? 'saved'
+            : 'original'
   const showLauncher = !isHub && !open
   const hubSessionsRail = isHub && open && hubRailMode === 'sessions'
   const hubThreadRail = isHub && open && hubRailMode === 'thread'
@@ -1409,9 +1504,20 @@ export function CompactAssistantDemo() {
               selectMode={storySelectMode}
               onSelectModeChange={setStorySelectMode}
               onSelectionPrompt={submitStorySelection}
-              aiState={storyAi.storyId === null || storyAi.storyId === activeStoryId ? storyAi : undefined}
-              onMapCapture={storeMapCapture}
-            />
+            aiState={storyAiState}
+            onMapCapture={storeMapCapture}
+            aiModeBar={
+              storyBarStatus ? (
+                <StoryAiModeBar
+                  status={storyBarStatus}
+                  conversationOpen={storyConversationOpen}
+                  onReset={resetStoryAi}
+                  onUpdate={updateStoryAi}
+                  onToggleConversation={toggleStoryConversation}
+                />
+              ) : null
+            }
+          />
           ) : (
             <LandingHomeDefault
               onOpenStory={setActiveStoryId}

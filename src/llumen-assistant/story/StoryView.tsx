@@ -160,6 +160,8 @@ export type StoryViewProps = {
   aiState?: { token: number; snapshot: StoryAiSnapshot | null }
   /** Map screenshot for a reply's map-state card, taken after the prompt's animation settles. */
   onMapCapture?: (stateId: string, capture: StoryMapCapture) => void
+  /** Status bar for the AI-changed story; hidden while select mode shows its own banner. */
+  aiModeBar?: ReactNode
 }
 
 /** How long a prompt's camera flight and column animation take before the map is captured. */
@@ -340,6 +342,7 @@ export function StoryView({
   onSelectionPrompt,
   aiState,
   onMapCapture,
+  aiModeBar,
 }: StoryViewProps) {
   const story = useMemo(() => getLandingStory(storyId), [storyId])
   const [storyTitle, setStoryTitle] = useState(story.storyTitle)
@@ -420,8 +423,8 @@ export function StoryView({
   const [aiFilterLabels, setAiFilterLabels] = useState<Record<string, string>>({})
   const [restoredCards, setRestoredCards] = useState<{ ids: InsightCardId[]; key: number } | null>(null)
   const [cameraRequest, setCameraRequest] = useState<{ camera: NonNullable<StoryAiSnapshot['camera']> } | null>(null)
-  // Starts at 0 so a story opened from a saved conversation replays its changes on mount.
-  const [appliedAiToken, setAppliedAiToken] = useState(0)
+  // Starts below any token so a story opened with a saved snapshot replays its changes on mount.
+  const [appliedAiToken, setAppliedAiToken] = useState(-1)
   if (aiState && aiState.token !== appliedAiToken) {
     setAppliedAiToken(aiState.token)
     const { snapshot } = aiState
@@ -2433,7 +2436,9 @@ export function StoryView({
           describeArea={describeArea}
           onSubmit={submitSelection}
         />
-      ) : null}
+      ) : (
+        aiModeBar
+      )}
       <ShareModal
         open={shareOpen}
         title={`Share “${storyTitle}”`}

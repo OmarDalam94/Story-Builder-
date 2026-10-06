@@ -49,6 +49,36 @@ export function storeConversations(conversations: SavedConversation[]) {
   }
 }
 
+const STORY_VERSIONS_KEY = 'llumen.savedStoryVersions.v1'
+
+/** AI changes the user saved into a story, keyed by story id; applied whenever that story opens. */
+export function loadStoryVersions(): Record<string, StoryAiSnapshot> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(STORY_VERSIONS_KEY) ?? '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, StoryAiSnapshot>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+export function storeStoryVersions(versions: Record<string, StoryAiSnapshot>) {
+  try {
+    window.localStorage.setItem(STORY_VERSIONS_KEY, JSON.stringify(versions))
+  } catch {
+    // Storage full or unavailable: the saved version still applies for this session.
+  }
+}
+
+/** Same story changes, ignoring where the camera was left. */
+export function sameStorySnapshot(a: StoryAiSnapshot | null, b: StoryAiSnapshot | null) {
+  if (!a || !b) return a === b
+  const key = (snapshot: StoryAiSnapshot) => JSON.stringify({ ...snapshot, camera: undefined })
+  return key(a) === key(b)
+}
+
 function updatedLabel(timestamp: number, now: Date): string {
   const date = new Date(timestamp)
   const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
