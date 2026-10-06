@@ -49,9 +49,9 @@ export function storeConversations(conversations: SavedConversation[]) {
   }
 }
 
-const STORY_VERSIONS_KEY = 'llumen.savedStoryVersions.v1'
+const STORY_VERSIONS_KEY = 'llumen.conversationStoryVersions.v1'
 
-/** AI changes the user saved into a story, keyed by story id; applied whenever that story opens. */
+/** Story changes the user kept with Update, keyed by conversation id; Reset returns to them. */
 export function loadStoryVersions(): Record<string, StoryAiSnapshot> {
   if (typeof window === 'undefined') return {}
   try {

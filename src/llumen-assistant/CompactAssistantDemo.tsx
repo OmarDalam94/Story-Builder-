@@ -350,7 +350,7 @@ export function CompactAssistantDemo() {
   }>({ token: 0, snapshot: null, storyId: null, conversationId: null })
   const [storyVersions, setStoryVersions] = useState<Record<string, StoryAiSnapshot>>(loadStoryVersions)
   /** Update in progress: the bar spins before `snapshot` becomes the story's saved version. */
-  const [storyUpdate, setStoryUpdate] = useState<{ storyId: string; snapshot: StoryAiSnapshot } | null>(null)
+  const [storyUpdate, setStoryUpdate] = useState<{ conversationId: string; snapshot: StoryAiSnapshot } | null>(null)
   /** Story whose AI mode bar is showing; it stays up until the story is closed. */
   const [aiBarStoryId, setAiBarStoryId] = useState<string | null>(null)
   /** Map screenshots + cameras behind each reply's map-state card. */
@@ -602,6 +602,14 @@ export function CompactAssistantDemo() {
     if (subcontext.view !== 'closed') setSessionsOpen(false)
   }, [subcontext.view])
 
+  /** Hiding the rail unmounts the thread; mark replies finished so reopening doesn't replay them. */
+  const settleReplies = useCallback(() => {
+    setSettledReplyIds((current) => {
+      const ids = messages.filter((msg) => msg.role === 'assistant' && !current.has(msg.id)).map((msg) => msg.id)
+      return ids.length > 0 ? new Set([...current, ...ids]) : current
+    })
+  }, [messages])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
@@ -642,12 +650,13 @@ export function CompactAssistantDemo() {
         setExpanded(false)
         return
       }
+      settleReplies()
       setOpen(false)
       setExpanded(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, subcontext.view, closeSubcontext, expanded, sessionsOpen, shareOpen, isHub, hubStoryOpen, hubRailMode])
+  }, [open, subcontext.view, closeSubcontext, expanded, sessionsOpen, shareOpen, isHub, hubStoryOpen, hubRailMode, settleReplies])
 
   const startAssistantReply = useCallback((reply: AssistantReplyPayload) => {
     const aid = uid()
@@ -1037,31 +1046,43 @@ export function CompactAssistantDemo() {
     storeStoryVersions(storyVersions)
   }, [storyVersions])
 
+  /** Back to the story as authored; detaching the conversation also drops its updated version. */
   const resetStoryAi = useCallback(() => {
     setStorySelectMode(false)
     setActiveMapStateId(null)
-    setStoryAi((current) => ({ ...current, token: current.token + 1, snapshot: null }))
+    setStoryUpdate(null)
+    setAiBarStoryId(null)
+    setStoryAi((current) => ({ token: current.token + 1, snapshot: null, storyId: null, conversationId: null }))
   }, [])
 
   const updateStoryAi = useCallback(() => {
-    const snapshot = storyAi.snapshot
-    if (!activeStoryId || !snapshot) return
-    setStoryUpdate({ storyId: activeStoryId, snapshot })
-  }, [activeStoryId, storyAi.snapshot])
+    const { snapshot, conversationId } = storyAi
+    if (!snapshot || !conversationId) return
+    setStoryUpdate({ conversationId, snapshot })
+  }, [storyAi])
 
   useEffect(() => {
     if (!storyUpdate) return
     const timer = window.setTimeout(() => {
-      setStoryVersions((current) => ({ ...current, [storyUpdate.storyId]: storyUpdate.snapshot }))
+      setStoryVersions((current) => ({ ...current, [storyUpdate.conversationId]: storyUpdate.snapshot }))
       setStoryUpdate(null)
     }, STORY_UPDATE_MS)
     return () => window.clearTimeout(timer)
   }, [storyUpdate])
 
+  /** Home cards always open the story as authored; AI versions come back only through their conversation. */
+  const openStoryFromHome = useCallback((storyId: string) => {
+    setStorySelectMode(false)
+    setActiveMapStateId(null)
+    setStoryAi((current) => ({ token: current.token + 1, snapshot: null, storyId: null, conversationId: null }))
+    setActiveStoryId(storyId)
+  }, [])
+
   const storyConversationOpen = open && hubRailMode === 'thread' && messages.length > 0
 
   const toggleStoryConversation = useCallback(() => {
     if (storyConversationOpen) {
+      settleReplies()
       setOpen(false)
       return
     }
@@ -1074,7 +1095,7 @@ export function CompactAssistantDemo() {
     setSessionsOpen(false)
     setOpen(true)
     setExpanded(false)
-  }, [storyConversationOpen, messages.length, storyAi.conversationId, conversations, loadConversation])
+  }, [storyConversationOpen, settleReplies, messages.length, storyAi.conversationId, conversations, loadConversation])
 
   const deleteSession = useCallback(
     (id: string) => {
@@ -1321,9 +1342,10 @@ export function CompactAssistantDemo() {
   }, [messages])
 
   const storyActive = activeStoryId != null
-  const savedStoryVersion = activeStoryId ? (storyVersions[activeStoryId] ?? null) : null
   const ownsActiveStory = storyAi.storyId === null || storyAi.storyId === activeStoryId
-  const storyAiSnapshot = (ownsActiveStory ? storyAi.snapshot : null) ?? savedStoryVersion
+  const savedStoryVersion =
+    ownsActiveStory && storyAi.conversationId ? (storyVersions[storyAi.conversationId] ?? null) : null
+  const storyAiSnapshot = ownsActiveStory ? (storyAi.snapshot ?? savedStoryVersion) : null
   const storyAiState = useMemo(
     () => ({ token: storyAi.token, snapshot: storyAiSnapshot }),
     [storyAi.token, storyAiSnapshot],
@@ -1338,7 +1360,7 @@ export function CompactAssistantDemo() {
   const storyBarStatus: StoryAiModeStatus | null =
     !activeStoryId || aiBarStoryId !== activeStoryId
       ? null
-      : storyUpdate?.storyId === activeStoryId
+      : storyUpdate && storyUpdate.conversationId === storyAi.conversationId
         ? 'updating'
         : storyHasUnsavedAi
           ? 'unsaved'
@@ -1520,7 +1542,7 @@ export function CompactAssistantDemo() {
           />
           ) : (
             <LandingHomeDefault
-              onOpenStory={setActiveStoryId}
+              onOpenStory={openStoryFromHome}
               onTellMeMore={onTellMeMore}
               headerEnd={uxSwitcher}
               reserveComposer={isHub}

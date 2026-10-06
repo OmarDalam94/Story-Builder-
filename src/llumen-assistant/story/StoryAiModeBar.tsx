@@ -30,7 +30,12 @@ export function StoryAiModeBar({ status, conversationOpen, onReset, onUpdate, on
           {HINTS[status]}
         </span>
       </span>
-      <button type="button" className={styles.action} onClick={onReset} disabled={!unsaved}>
+      <button
+        type="button"
+        className={styles.action}
+        onClick={onReset}
+        disabled={status === 'updating' || status === 'original'}
+      >
         <ArrowCounterClockwise size={14} weight="bold" aria-hidden />
         Reset
       </button>

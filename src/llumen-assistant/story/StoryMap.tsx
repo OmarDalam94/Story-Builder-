@@ -52,7 +52,7 @@ export type StoryMapHandle = {
 }
 
 const CAPTURE_WIDTH = 560
-const CAPTURE_ASPECT = 16 / 10
+const CAPTURE_ASPECT = 2.2
 
 function captureMapView(map: mapboxgl.Map): StoryMapCapture {
   const canvas = map.getCanvas()
