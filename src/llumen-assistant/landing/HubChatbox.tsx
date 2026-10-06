@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { ArrowUp, At, ChatText, ClockCounterClockwise, File, Paperclip, X } from '@phosphor-icons/react'
+import {
+  ArrowUp,
+  At,
+  ChatText,
+  ClockCounterClockwise,
+  File,
+  Paperclip,
+  Selection,
+  X,
+} from '@phosphor-icons/react'
 import { BorderBeam } from 'border-beam'
 import gsap from 'gsap'
 import { llumenAssets } from '../assets'
@@ -189,6 +198,9 @@ export type HubChatboxProps = {
   workToast?: HubWorkToast | null
   onViewWorkInChat?: () => void
   onDismissWork?: () => void
+  /** Story select mode; the toggle only renders when `onSelectModeChange` is set. */
+  selectMode?: boolean
+  onSelectModeChange?: (on: boolean) => void
 }
 
 export function HubChatbox({
@@ -204,6 +216,8 @@ export function HubChatbox({
   workToast = null,
   onViewWorkInChat,
   onDismissWork,
+  selectMode = false,
+  onSelectModeChange,
 }: HubChatboxProps) {
   const [focused, setFocused] = useState(false)
   const [editorEmpty, setEditorEmpty] = useState(true)
@@ -756,6 +770,21 @@ export function HubChatbox({
                 >
                   <Paperclip size={18} weight="regular" aria-hidden />
                 </button>
+                {onSelectModeChange ? (
+                  <button
+                    type="button"
+                    className={`${styles.iconAction}${selectMode ? ` ${styles.iconActionActive}` : ''}`}
+                    aria-label={selectMode ? 'Exit select mode' : 'Select elements'}
+                    aria-pressed={selectMode}
+                    title="Select elements"
+                    disabled={interactionLocked || !expanded}
+                    tabIndex={expanded ? 0 : -1}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => onSelectModeChange(!selectMode)}
+                  >
+                    <Selection size={18} weight={selectMode ? 'bold' : 'regular'} aria-hidden />
+                  </button>
+                ) : null}
                 <button
                   ref={mentionBtnRef}
                   type="button"

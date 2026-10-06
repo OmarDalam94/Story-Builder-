@@ -315,7 +315,7 @@ export function hexToRgb(hex: string): [number, number, number] {
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255]
 }
 
-function rampColor(ramp: [number, string][], height: number): [number, number, number] {
+export function rampColor(ramp: [number, string][], height: number): [number, number, number] {
   if (height <= ramp[0][0]) return hexToRgb(ramp[0][1])
   for (let i = 1; i < ramp.length; i += 1) {
     const [stop, color] = ramp[i]

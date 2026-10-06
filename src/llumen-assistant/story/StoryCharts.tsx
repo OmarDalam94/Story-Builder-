@@ -157,8 +157,8 @@ export function TrendChart({
         </svg>
       </div>
       <div className={styles.chartX}>
-        {xLabels.map((label) => (
-          <span key={label}>{label}</span>
+        {xLabels.map((label, index) => (
+          <span key={`${label}-${index}`}>{label}</span>
         ))}
       </div>
     </div>
@@ -174,16 +174,23 @@ const DEMO_SITES = 599
 const DEMO_UPTIME = 96
 const DEMO_OFFLINE_BARS = [12, 35]
 
+const EMISSIONS_X = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00']
+const GROUNDWATER_X = ['00', '02', '04', '06', '08', '10', '12', '14', '16', '18', '20', '22']
+
 export function EmissionsChart({
   yLabels,
   line,
   gradientId = 'emissions-area',
   kpi,
+  xLabels = EMISSIONS_X,
+  legend = ['Observed', 'Typical'],
 }: {
   yLabels: string[]
   line: string
   gradientId?: string
   kpi?: ReactNode
+  xLabels?: string[]
+  legend?: [string, string]
 }) {
   return (
     <>
@@ -192,16 +199,16 @@ export function EmissionsChart({
       <div className={styles.chartLegend}>
         <span>
           <i className={styles.swatchProjected} />
-          Observed
+          {legend[0]}
         </span>
         <span>
           <i className={styles.swatchPlanned} />
-          Typical
+          {legend[1]}
         </span>
       </div>
       <TrendChart
         yLabels={yLabels}
-        xLabels={['00:00', '04:00', '08:00', '12:00', '16:00', '20:00']}
+        xLabels={xLabels}
         line={line}
         lineColor="#7dcea0"
         gradientId={gradientId}
@@ -216,11 +223,13 @@ export function GroundwaterChart({
   line,
   gradientId = 'groundwater-area',
   kpi,
+  xLabels = GROUNDWATER_X,
 }: {
   value: number
   line: string
   gradientId?: string
   kpi?: ReactNode
+  xLabels?: string[]
 }) {
   return (
     <>
@@ -237,7 +246,7 @@ export function GroundwaterChart({
       )}
       <TrendChart
         yLabels={['100', '50', '0']}
-        xLabels={['00', '02', '04', '06', '08', '10', '12', '14', '16', '18', '20', '22']}
+        xLabels={xLabels}
         line={line}
         lineColor="#ee7b93"
         gradientId={gradientId}

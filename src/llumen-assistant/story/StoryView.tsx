@@ -4,6 +4,7 @@
  */
 import {
   Fragment,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -86,14 +87,46 @@ import {
   type StoryFilter,
   type StorySlide,
 } from './storyDemoData'
-import { StoryMap, STORY_MAP_STYLE, type StoryMapLayerVisibility } from './StoryMap'
+import { StoryMap, STORY_MAP_STYLE, type StoryMapHandle, type StoryMapLayerVisibility } from './StoryMap'
+import type { AssistantReplyPayload } from '../assistantReplyTypes'
+import { StorySelectLayer, type StorySelectArea, type StorySelection } from './StorySelectLayer'
+import {
+  AREA_FILTER_LABELS,
+  AREA_PROMPT,
+  MUSSAFAH_BUSY,
+  MUSSAFAH_LABEL,
+  MUSSAFAH_LOAD_X,
+  MUSSAFAH_MAX_HEIGHT_M,
+  MUSSAFAH_PERIOD,
+  MUSSAFAH_REGION,
+  MUSSAFAH_VOLUME_X,
+  areaFilterEffect,
+  countInPolygon,
+  mussafahInsight,
+  mussafahPrompt,
+  regionColumnHeights,
+  regionJunctionRadii,
+  type StoryAiSnapshot,
+  type StoryAreaEffect,
+  type StoryMapCapture,
+  type StoryMapRegion,
+} from './storyAiScenarios'
+import { areaFilterReply, mussafahReply, withMapState } from './storySelectionReplies'
+import { DEMO_COLUMNS, DEMO_JUNCTIONS } from './storyDemoMapData'
 import { StoryComparisonModal } from './StoryComparisonModal'
 import { comparisonOptions, comparisonPhase, type ComparisonMapOption } from './storyComparison'
 import { createCameraLink } from './storyCameraLink'
 import type { StoryBackground } from './storyBackground'
 import { StoryBackgroundLayer } from './StoryBackgroundLayer'
 import { BackgroundSettings } from './StoryBackgroundSettings'
-import { sceneAtPhase, storySceneAt, type ColumnGlyphColors, type StoryScene } from './storyDemoScenes'
+import {
+  COLUMN_MAX_HEIGHT_M,
+  sceneAtPhase,
+  sceneState,
+  storySceneAt,
+  type ColumnGlyphColors,
+  type StoryScene,
+} from './storyDemoScenes'
 import { StoryTimeSeries } from './StoryTimeSeries'
 import type { TimelineChartSeries } from './storyTimelineCharts'
 import {
@@ -115,6 +148,69 @@ export type StoryViewProps = {
   onAsk?: (context: { story: LandingStory; slideIndex: number; sourceRect: DOMRect }) => void
   /** When the agent rail is open, hide the Ask icon. */
   agentOpen?: boolean
+  /** Select mode: pick insight components or drag an area on the map to prompt about. */
+  selectMode?: boolean
+  onSelectModeChange?: (on: boolean) => void
+  /** A select-mode prompt was sent; the story already applied its changes. */
+  onSelectionPrompt?: (request: { prompt: string; reply: AssistantReplyPayload; snapshot: StoryAiSnapshot }) => void
+  /**
+   * A new `token` animates the story to `snapshot` (a saved conversation's changes),
+   * or back to its original slides when `snapshot` is null.
+   */
+  aiState?: { token: number; snapshot: StoryAiSnapshot | null }
+  /** Map screenshot for a reply's map-state card, taken after the prompt's animation settles. */
+  onMapCapture?: (stateId: string, capture: StoryMapCapture) => void
+}
+
+/** How long a prompt's camera flight and column animation take before the map is captured. */
+const REGION_CAPTURE_DELAY_MS = 4900
+const AREA_CAPTURE_DELAY_MS = 2300
+
+export type { StoryAiSnapshot }
+
+function relabelFilterMap(
+  current: Record<string, StoryFilter[]>,
+  slides: StorySlide[],
+  fallback: StoryFilter[],
+  labels: Record<string, string>,
+): Record<string, StoryFilter[]> {
+  return Object.fromEntries(
+    slides.map((item) => {
+      const list = (current[item.id] ?? fallback).map((filter) =>
+        labels[filter.id] ? { ...filter, label: labels[filter.id] } : filter,
+      )
+      for (const [id, label] of Object.entries(labels)) {
+        if (!list.some((filter) => filter.id === id)) list.push({ id, label })
+      }
+      return [item.id, list]
+    }),
+  )
+}
+
+function changedFilterIds(from: Record<string, StoryFilter[]>, to: Record<string, StoryFilter[]>): string[] {
+  const changed = new Set<string>()
+  for (const [slideId, list] of Object.entries(to)) {
+    const before = from[slideId] ?? []
+    for (const filter of list) {
+      if (before.find((item) => item.id === filter.id)?.label !== filter.label) changed.add(filter.id)
+    }
+  }
+  return [...changed]
+}
+
+const INSIGHT_CARD_LABELS: Record<InsightCardId, string> = {
+  summary: 'Executive Summary',
+  emissions: 'Traffic Volume vs Typical Pattern',
+  groundwater: 'Average Junction Load',
+  biodiversity: 'Junction Traffic Status',
+  sites: 'Live Junction Data',
+}
+
+const DEFAULT_FOCUS_CARDS: ChartCardId[] = ['emissions', 'groundwater']
+const CHART_CARD_ORDER: ChartCardId[] = ['emissions', 'groundwater', 'biodiversity', 'sites']
+
+function isChartCardId(id: string): id is ChartCardId {
+  return id === 'emissions' || id === 'groundwater' || id === 'biodiversity' || id === 'sites'
 }
 
 function filterIcon(id: string) {
@@ -234,7 +330,17 @@ function makePresentationSettings(): StoryPresentationSettings {
   }
 }
 
-export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryViewProps) {
+export function StoryView({
+  storyId,
+  onBack,
+  onAsk,
+  agentOpen = false,
+  selectMode = false,
+  onSelectModeChange,
+  onSelectionPrompt,
+  aiState,
+  onMapCapture,
+}: StoryViewProps) {
   const story = useMemo(() => getLandingStory(storyId), [storyId])
   const [storyTitle, setStoryTitle] = useState(story.storyTitle)
   const [storyDescription, setStoryDescription] = useState(story.description)
@@ -305,6 +411,44 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   const [cameraLink] = useState(createCameraLink)
   const [comparisonSplit, setComparisonSplit] = useState(COMPARISON_SPLIT_DEFAULT)
   const [splitDragging, setSplitDragging] = useState(false)
+  const [aiFocus, setAiFocus] = useState<{ cards: ChartCardId[]; key: number } | null>(null)
+  const [aiRegion, setAiRegion] = useState<StoryMapRegion | null>(null)
+  const [areaEffect, setAreaEffect] = useState<StoryAreaEffect | null>(null)
+  const [flashedFilters, setFlashedFilters] = useState<{ ids: string[]; key: number } | null>(null)
+  /** Filters as they were before the first select-mode prompt, restored when `aiState` resets. */
+  const [filtersBeforeAi, setFiltersBeforeAi] = useState<Record<string, StoryFilter[]> | null>(null)
+  const [aiFilterLabels, setAiFilterLabels] = useState<Record<string, string>>({})
+  const [restoredCards, setRestoredCards] = useState<{ ids: InsightCardId[]; key: number } | null>(null)
+  const [cameraRequest, setCameraRequest] = useState<{ camera: NonNullable<StoryAiSnapshot['camera']> } | null>(null)
+  // Starts at 0 so a story opened from a saved conversation replays its changes on mount.
+  const [appliedAiToken, setAppliedAiToken] = useState(0)
+  if (aiState && aiState.token !== appliedAiToken) {
+    setAppliedAiToken(aiState.token)
+    const { snapshot } = aiState
+    if (snapshot || aiFocus || aiRegion || areaEffect || filtersBeforeAi) {
+      const key = Date.now()
+      const base = filtersBeforeAi ?? filtersBySlide
+      const nextFilters = snapshot ? relabelFilterMap(base, slides, story.filters, snapshot.filterLabels) : base
+      const changed = changedFilterIds(filtersBySlide, nextFilters)
+      const visibleBefore = aiFocus?.cards ?? CHART_CARD_ORDER
+      const visibleAfter = snapshot?.cards ?? CHART_CARD_ORDER
+      const restored = CHART_CARD_ORDER.filter((id) => visibleAfter.includes(id) && !visibleBefore.includes(id))
+      setRestoredCards(restored.length > 0 && !snapshot?.cards ? { ids: restored, key } : null)
+      setAiFocus(snapshot?.cards ? { cards: snapshot.cards, key } : null)
+      setAiRegion(snapshot?.region ? MUSSAFAH_REGION : null)
+      setAreaEffect(snapshot?.areaEffect ?? null)
+      setFiltersBySlide(nextFilters)
+      setFiltersBeforeAi(snapshot ? base : null)
+      setAiFilterLabels(snapshot?.filterLabels ?? {})
+      setCameraRequest(snapshot?.camera ? { camera: snapshot.camera } : null)
+      if (changed.length > 0) setFlashedFilters({ ids: changed, key })
+      setRegeneratingSlideId(slides[slideIndex]?.id ?? null)
+    }
+  }
+  const mapHandleRef = useRef<StoryMapHandle | null>(null)
+  const onMapHandle = useCallback((handle: StoryMapHandle | null) => {
+    mapHandleRef.current = handle
+  }, [])
   const rootRef = useRef<HTMLDivElement>(null)
   /** Live drag value; written straight to the CSS variable so the story view skips re-rendering. */
   const splitDragRef = useRef<{ value: number; frame: number | null } | null>(null)
@@ -348,6 +492,9 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     () => warpPath(GROUNDWATER_LINE, insight.groundwaterWarp),
     [insight.groundwaterWarp],
   )
+  const regionInsight = useMemo(() => (aiRegion ? mussafahInsight(framePhase) : null), [aiRegion, framePhase])
+  const legendPlace = aiRegion ? MUSSAFAH_LABEL : 'Abu Dhabi'
+  const mainLegend = aiRegion ? { ...scene.legend, junctionCount: aiRegion.junctions.length } : scene.legend
   const previewStory: LandingStory = {
     ...story,
     storyTitle,
@@ -585,21 +732,32 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     style?: CSSProperties,
   ) => {
     const prefs = cardPrefs[id] ?? {}
-    if (prefs.deleted || (prefs.hidden && storyMode !== 'edit')) return null
+    const focused = aiFocus !== null && id !== 'summary' && aiFocus.cards.includes(id)
+    if (aiFocus && id !== 'summary' && !focused) return null
+    if (!focused && (prefs.deleted || (prefs.hidden && storyMode !== 'edit'))) return null
+    const restored = !focused && restoredCards !== null && restoredCards.ids.includes(id)
     const menuOpen = openCardMenu?.cardId === id
+    const focusDelay = focused
+      ? aiFocus.cards.indexOf(id as ChartCardId) * 140 + 220
+      : restored
+        ? restoredCards.ids.indexOf(id) * 110 + 260
+        : null
     return (
       <section
-        key={id}
+        key={focused ? `${id}-${aiFocus.key}` : restored ? `${id}-restored-${restoredCards.key}` : id}
+        data-select-id={id}
+        data-select-label={INSIGHT_CARD_LABELS[id]}
         className={[
           className,
           styles.insightCard,
-          prefs.hidden ? styles.insightCardHidden : '',
+          focused || restored ? styles.insightCardFocusIn : '',
+          prefs.hidden && !focused ? styles.insightCardHidden : '',
           prefs.border ? styles.insightCardBorder : '',
           prefs.outline ? styles.insightCardOutline : '',
         ]
           .filter(Boolean)
           .join(' ')}
-        style={style}
+        style={focusDelay === null ? style : ({ ...style, '--focus-delay': `${focusDelay}ms` } as CSSProperties)}
       >
         {children}
         {storyMode === 'edit' ? (
@@ -1011,8 +1169,16 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           </>
         ) : null}
         {list.map((f, index) => (
-          <Fragment key={f.id}>
-            <span className={`${styles.filterPill}${storyMode === 'edit' ? ` ${styles.filterPillEditing}` : ''}`}>
+          <Fragment key={flashedFilters?.ids.includes(f.id) ? `${f.id}-${flashedFilters.key}` : f.id}>
+            <span
+              className={[
+                styles.filterPill,
+                storyMode === 'edit' ? styles.filterPillEditing : '',
+                flashedFilters?.ids.includes(f.id) ? styles.filterPillUpdated : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
               {filterIcon(f.id)}
               <span>{f.label}</span>
               {storyMode === 'edit' ? (
@@ -1046,11 +1212,12 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     layerState: StoryMapLayerVisibility,
     onToggle: (key: MapDataLayerKey) => void,
     addLayer: boolean,
+    place = 'Abu Dhabi',
   ) => (
     <div className={styles.mapDataBody}>
       <div className={styles.legendGroup}>
         <div className={styles.legendHead}>
-          <p className={styles.legendSection}>Abu Dhabi Monitored Junctions</p>
+          <p className={styles.legendSection}>{place} Monitored Junctions</p>
           <span className={styles.legendActions}>
             <button type="button" className={styles.legendIconBtn} aria-label="Junction style">
               <PaintBucket size={16} weight="regular" aria-hidden />
@@ -1101,7 +1268,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       </div>
       <div className={styles.legendGroup}>
         <div className={styles.legendHead}>
-          <p className={styles.legendSection}>Abu Dhabi Value Distribution</p>
+          <p className={styles.legendSection}>{place} Value Distribution</p>
           <span className={styles.legendActions}>
             <button type="button" className={styles.legendIconBtn} aria-label="Distribution style">
               <PaintBucket size={16} weight="regular" aria-hidden />
@@ -1183,6 +1350,21 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         'Executive Summary',
         <>
           <h2 className={styles.summaryTitle}>Executive Summary</h2>
+          {aiRegion && regionInsight ? (
+            <p className={styles.summaryBody}>
+              {MUSSAFAH_LABEL}&apos;s traffic volume rose{' '}
+              <em className={styles.summaryEmphasis}>14% year over year</em> in {MUSSAFAH_PERIOD}, peaking at
+              11.8k vehicles per hour on the E30 approach. Average junction load climbed to{' '}
+              <em className={styles.summaryEmphasis}>
+                <AnimatedNumber value={regionInsight.load} format={formatCount} />%
+              </em>
+              , with{' '}
+              <em className={styles.summaryEmphasis}>
+                {MUSSAFAH_BUSY} of {aiRegion.junctions.length} junctions
+              </em>{' '}
+              over capacity during the 06:00–09:00 shift change.
+            </p>
+          ) : (
           <p className={styles.summaryBody}>
             Abu Dhabi&apos;s traffic operations view combines monitored-junction activity and
             value-distribution signals across{' '}
@@ -1198,6 +1380,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             Hourly traffic volume and junction-load trends identify the busiest corridors so
             operations teams can prioritize signal timing and field response.
           </p>
+          )}
         </>,
         {
           ...gradientVars(summaryConfig.gradient),
@@ -1208,19 +1391,30 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         'emissions',
         styles.visualCard,
         'Traffic volume',
-        <EmissionsChart
-          yLabels={insight.emissionsLabels}
-          line={emissionsLine}
-          kpi={chartKpi('emissions')}
-        />,
+        regionInsight ? (
+          <EmissionsChart
+            yLabels={regionInsight.volumeLabels}
+            line={regionInsight.volumeLine}
+            xLabels={MUSSAFAH_VOLUME_X}
+            legend={['2024', '2023']}
+            kpi={chartKpi('emissions')}
+          />
+        ) : (
+          <EmissionsChart
+            yLabels={insight.emissionsLabels}
+            line={emissionsLine}
+            kpi={chartKpi('emissions')}
+          />
+        ),
       )}
       {insightCard(
         'groundwater',
         styles.visualCard,
         'Average junction load',
         <GroundwaterChart
-          value={insight.groundwaterValue}
-          line={groundwaterLine}
+          value={regionInsight?.load ?? insight.groundwaterValue}
+          line={regionInsight?.loadLine ?? groundwaterLine}
+          xLabels={regionInsight ? MUSSAFAH_LOAD_X : undefined}
           kpi={chartKpi('groundwater')}
         />,
       )}
@@ -1249,6 +1443,136 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     </>
   )
 
+  const exitSelectMode = useCallback(() => onSelectModeChange?.(false), [onSelectModeChange])
+
+  const relabelFilters = (labels: Record<string, string>) => {
+    setFiltersBeforeAi((before) => before ?? filtersBySlide)
+    setAiFilterLabels((current) => ({ ...current, ...labels }))
+    setRestoredCards(null)
+    setFiltersBySlide((current) => relabelFilterMap(current, slides, story.filters, labels))
+    setFlashedFilters({ ids: Object.keys(labels), key: Date.now() })
+  }
+
+  /** Viewport corners of a select-layer rectangle, projected onto the main map. */
+  const areaPolygon = (area: StorySelectArea): [number, number][] | null => {
+    const handle = mapHandleRef.current
+    const base = rootRef.current?.getBoundingClientRect()
+    if (!handle || !base) return null
+    const left = base.left + area.left
+    const top = base.top + area.top
+    const right = left + area.width
+    const bottom = top + area.height
+    return [
+      handle.unproject(left, top),
+      handle.unproject(right, top),
+      handle.unproject(right, bottom),
+      handle.unproject(left, bottom),
+    ]
+  }
+
+  const describeArea = (area: StorySelectArea) => {
+    const polygon = areaPolygon(area)
+    if (!polygon) return ''
+    const columns =
+      (aiRegion ? 0 : countInPolygon(DEMO_COLUMNS, polygon)) +
+      (aiRegion ? countInPolygon(aiRegion.columns, polygon) : 0)
+    const disks =
+      (aiRegion ? 0 : countInPolygon(DEMO_JUNCTIONS, polygon)) +
+      (aiRegion ? countInPolygon(aiRegion.junctions, polygon) : 0)
+    return `${columns} columns · ${disks} disks`
+  }
+
+  const suggestSelectionPrompt = (selection: StorySelection) =>
+    selection.area
+      ? AREA_PROMPT
+      : mussafahPrompt(
+          (selection.targets.some((target) => isChartCardId(target.id))
+            ? selection.targets.filter((target) => isChartCardId(target.id))
+            : selection.targets
+          ).map((target) => target.label),
+        )
+
+  const submitSelection = (selection: StorySelection, prompt: string) => {
+    if (selection.area) {
+      const polygon = areaPolygon(selection.area)
+      if (!polygon) return
+      const state = sceneState(scene)
+      const { effect, stats } = areaFilterEffect({
+        polygon,
+        columns: aiRegion ? [] : DEMO_COLUMNS,
+        junctions: aiRegion ? [] : DEMO_JUNCTIONS,
+        heights: aiRegion ? [] : state.heights,
+        radii: aiRegion ? [] : state.radii,
+        regionColumns: aiRegion?.columns ?? [],
+        regionJunctions: aiRegion?.junctions ?? [],
+        regionHeights: aiRegion ? regionColumnHeights(aiRegion, framePhase) : [],
+        regionRadii: aiRegion ? regionJunctionRadii(aiRegion, framePhase) : [],
+        load: regionInsight?.load ?? insight.groundwaterValue,
+        maxHeight: aiRegion ? MUSSAFAH_MAX_HEIGHT_M : COLUMN_MAX_HEIGHT_M,
+      })
+      setAreaEffect(effect)
+      relabelFilters(AREA_FILTER_LABELS)
+      const snapshot: StoryAiSnapshot = {
+        cards: aiFocus?.cards ?? null,
+        region: aiRegion !== null,
+        areaEffect: effect,
+        filterLabels: { ...aiFilterLabels, ...AREA_FILTER_LABELS },
+      }
+      const reply = areaFilterReply(stats)
+      const stateId = `map-state-${Date.now()}`
+      const mapChanged = stats.columns > 0 || stats.junctions > 0
+      onSelectionPrompt?.({
+        prompt,
+        reply: mapChanged
+          ? withMapState(reply, {
+              stateId,
+              snapshot,
+              title: `${Object.values(AREA_FILTER_LABELS).join(' · ')} in the selected area`,
+              tag: aiRegion ? MUSSAFAH_LABEL : 'Abu Dhabi',
+              meta: `${stats.columns} columns / ${stats.junctions} disks`,
+            })
+          : reply,
+        snapshot,
+      })
+      if (mapChanged) captureMapState(stateId, AREA_CAPTURE_DELAY_MS)
+    } else {
+      const picked = selection.targets.map((target) => target.id).filter(isChartCardId)
+      const cards = picked.length > 0 ? picked : DEFAULT_FOCUS_CARDS
+      const labels = { loc: MUSSAFAH_LABEL, year: MUSSAFAH_PERIOD }
+      setAiFocus({ cards, key: Date.now() })
+      setAiRegion(MUSSAFAH_REGION)
+      setAreaEffect(null)
+      setRegeneratingSlideId(slide.id)
+      relabelFilters(labels)
+      const snapshot: StoryAiSnapshot = {
+        cards,
+        region: true,
+        areaEffect: null,
+        filterLabels: { ...aiFilterLabels, ...labels },
+      }
+      const stateId = `map-state-${Date.now()}`
+      onSelectionPrompt?.({
+        prompt,
+        reply: withMapState(mussafahReply(cards.map((id) => INSIGHT_CARD_LABELS[id])), {
+          stateId,
+          snapshot,
+          title: `${MUSSAFAH_LABEL} · ${MUSSAFAH_PERIOD}`,
+          tag: MUSSAFAH_LABEL,
+          meta: `${MUSSAFAH_REGION.columns.length} columns / ${MUSSAFAH_REGION.junctions.length} junctions`,
+        }),
+        snapshot,
+      })
+      captureMapState(stateId, REGION_CAPTURE_DELAY_MS)
+    }
+    onSelectModeChange?.(false)
+  }
+
+  const captureMapState = (stateId: string, delay: number) => {
+    window.setTimeout(() => {
+      void mapHandleRef.current?.capture().then((capture) => onMapCapture?.(stateId, capture))
+    }, delay)
+  }
+
   return (
     <div
       ref={rootRef}
@@ -1267,6 +1591,10 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           frameLinear={timelinePlaying}
           styleUrl={mapStyle.url}
           cameraLink={viewLayout === 'comparison' && mapsLinked ? cameraLink : undefined}
+          region={aiRegion}
+          cameraRequest={cameraRequest}
+          areaEffect={areaEffect}
+          onHandle={onMapHandle}
         />
       </div>
       {viewLayout === 'comparison' ? (
@@ -1690,7 +2018,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
                 onReplace={() => toggleSection('map')}
               />
             ) : legendOpen || storyMode === 'edit' ? (
-              mapLegend(scene.legend, layers, toggleLayer, storyMode === 'edit')
+              mapLegend(mainLegend, layers, toggleLayer, storyMode === 'edit', legendPlace)
             ) : null}
           </div>
           ) : null}
@@ -2095,6 +2423,15 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             setCardConfig(null)
           }}
           onClose={() => setCardConfig(null)}
+        />
+      ) : null}
+      {selectMode ? (
+        <StorySelectLayer
+          rootRef={rootRef}
+          onExit={exitSelectMode}
+          suggestPrompt={suggestSelectionPrompt}
+          describeArea={describeArea}
+          onSubmit={submitSelection}
         />
       ) : null}
       <ShareModal

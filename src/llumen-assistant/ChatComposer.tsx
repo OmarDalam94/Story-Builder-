@@ -3,6 +3,7 @@ import {
   File,
   Microphone,
   Paperclip,
+  Selection,
   X,
 } from '@phosphor-icons/react'
 import gsap from 'gsap'
@@ -384,6 +385,9 @@ export type ChatComposerProps = {
   hasThreadMessages?: boolean
   /** Finding intro + toast stack, rendered above the composer (hub parity). */
   findingSlot?: ReactNode
+  /** Story select mode; the toggle only renders when `onSelectModeChange` is set. */
+  selectMode?: boolean
+  onSelectModeChange?: (on: boolean) => void
 }
 
 export type ChatComposerHandle = {
@@ -403,6 +407,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
     disabled = false,
     hasThreadMessages = false,
     findingSlot = null,
+    selectMode = false,
+    onSelectModeChange,
   },
   ref,
 ) {
@@ -970,6 +976,20 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
               >
                 <Paperclip size={18} weight="regular" aria-hidden />
               </button>
+              {onSelectModeChange ? (
+                <button
+                  type="button"
+                  className={`${styles.composerIconAction}${selectMode ? ` ${styles.composerIconActionActive}` : ''}`}
+                  aria-label={selectMode ? 'Exit select mode' : 'Select elements'}
+                  aria-pressed={selectMode}
+                  title="Select elements"
+                  disabled={editorDisabled}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onSelectModeChange(!selectMode)}
+                >
+                  <Selection size={18} weight={selectMode ? 'bold' : 'regular'} aria-hidden />
+                </button>
+              ) : null}
               <button
                 ref={mentionBtnRef}
                 type="button"
