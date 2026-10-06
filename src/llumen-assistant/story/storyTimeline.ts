@@ -1,6 +1,6 @@
 /**
  * Demo timeline model for the per-slide time series: a date range (funnel menu)
- * split into frames by a granularity (step-dots slider), ending at the story's
+ * split into frames by a granularity selected from a menu, ending at the story's
  * reference timestamp.
  */
 type DateUnit = 'minute' | 'hour' | 'day' | 'month' | 'year'
@@ -25,7 +25,7 @@ export type SlideTimeline = {
   frame: number
 }
 
-/** Ordered fine → coarse; one step dot each. */
+/** Ordered fine → coarse for the time-step menu. */
 export const TIMELINE_GRANULARITIES: TimelineGranularity[] = [
   { id: 'minute', label: 'Minute', unit: 'minute', step: 1 },
   { id: 'minutes-10', label: '10 min', unit: 'minute', step: 10 },

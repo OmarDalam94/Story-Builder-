@@ -1,5 +1,5 @@
 /**
- * Per-slide time series (Figma 5334:9193): granularity slider (step dots), speed +
+ * Per-slide time series (Figma 5334:9193): granularity menu, speed +
  * play controls, scrubber, frame timestamp, the date-range menu, and optional line
  * charts of map layer columns drawn along the scrubber.
  */
@@ -15,6 +15,7 @@ import {
 import { createPortal } from 'react-dom'
 import {
   CalendarBlank,
+  CaretDown,
   CaretLeft,
   CaretRight,
   ChartLine,
@@ -54,8 +55,6 @@ import {
 import styles from './StoryTimeSeries.module.css'
 
 const THUMB_WIDTH = 31
-const DOT_SIZE = 4
-const DRAG_PREVIEW_PX = 3
 const CHART_HEIGHT = 56
 const CHART_INSET_Y = 4
 const CHART_VIEW_WIDTH = 1000
@@ -82,6 +81,7 @@ export type StoryTimeSeriesProps = {
   chartPhaseOffset?: number
   charts?: TimelineChartSeries[]
   onChartsChange?: (charts: TimelineChartSeries[]) => void
+  editable: boolean
 }
 
 const NO_CHARTS: TimelineChartSeries[] = []
@@ -103,11 +103,12 @@ export function StoryTimeSeries({
   chartPhaseOffset = 0,
   charts = NO_CHARTS,
   onChartsChange,
+  editable,
 }: StoryTimeSeriesProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const plotRef = useRef<HTMLDivElement>(null)
-  const dotsRef = useRef<HTMLDivElement>(null)
+  const granularityBtnRef = useRef<HTMLButtonElement>(null)
   const speedBtnRef = useRef<HTMLButtonElement>(null)
   const datesBtnRef = useRef<HTMLButtonElement>(null)
   const chartsBtnRef = useRef<HTMLButtonElement>(null)
@@ -128,7 +129,6 @@ export function StoryTimeSeries({
   const menuRef = useRef<HTMLDivElement>(null)
   const resumeAfterScrubRef = useRef(false)
   const scrubPointerRef = useRef<number | null>(null)
-  const dotsDragRef = useRef<{ pointerId: number; startX: number; previewing: boolean } | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [menuPos, setMenuPos] = useState<{ bottom: number; left?: number; right?: number; width?: number }>({
     bottom: 0,
@@ -146,7 +146,6 @@ export function StoryTimeSeries({
   const progress = lastFrame > 0 ? frame / lastFrame : 0
   const dateText = formatFrameDate(timelineFrameDate(granularity, frameCount, frame))
   const [dateLabel, timeLabel] = dateText.split(', ')
-  const granularityIndex = TIMELINE_GRANULARITIES.indexOf(granularity)
 
   useEffect(() => {
     if (!menu) return
@@ -154,7 +153,7 @@ export function StoryTimeSeries({
       const target = event.target as Node
       if (menuRef.current?.contains(target)) return
       if (target instanceof Element && target.closest('[role="listbox"]')) return
-      const triggers = [speedBtnRef, datesBtnRef, dotsRef, chartsBtnRef]
+      const triggers = [speedBtnRef, datesBtnRef, granularityBtnRef, chartsBtnRef]
       if (triggers.some((ref) => ref.current?.contains(target))) return
       setMenu(null)
     }
@@ -191,12 +190,32 @@ export function StoryTimeSeries({
   }
 
   const toggleChartsMenu = () => {
-    if (menu !== 'charts') setChartDraft(charts.length > 0 ? distinctChartSeries(charts) : [newChartSeries([])])
+    if (menu !== 'charts') {
+      setChartDraft(
+        editable
+          ? charts.length > 0
+            ? distinctChartSeries(charts)
+            : [newChartSeries([])]
+          : charts,
+      )
+    }
     toggleMenu('charts')
   }
 
   const patchDraft = (id: string, patch: Partial<TimelineChartSeries>) =>
     setChartDraft((current) => current.map((series) => (series.id === id ? { ...series, ...patch } : series)))
+
+  const toggleChartVisibility = (id: string) => {
+    if (editable) {
+      patchDraft(id, { visible: !chartDraft.find((series) => series.id === id)?.visible })
+      return
+    }
+    const next = chartDraft.map((series) =>
+      series.id === id ? { ...series, visible: !series.visible } : series,
+    )
+    setChartDraft(next)
+    onChartsChange?.(next)
+  }
 
   const chartY = (value: number, min: number, max: number) =>
     max === min
@@ -222,63 +241,6 @@ export function StoryTimeSeries({
     const rect = plotRef.current?.getBoundingClientRect()
     if (!rect || lastFrame === 0) return 0
     return Math.round(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * lastFrame)
-  }
-
-  const granularityAt = (clientX: number) => {
-    const rect = dotsRef.current?.getBoundingClientRect()
-    const last = TIMELINE_GRANULARITIES.length - 1
-    if (!rect) return granularityIndex
-    const ratio = (clientX - rect.left - DOT_SIZE / 2) / (rect.width - DOT_SIZE)
-    return Math.round(Math.max(0, Math.min(1, ratio)) * last)
-  }
-
-  const selectGranularity = (index: number) => {
-    const next = TIMELINE_GRANULARITIES[index]
-    if (next && next.id !== granularity.id) onGranularityChange(next.id)
-  }
-
-  const onDotsDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return
-    event.currentTarget.setPointerCapture(event.pointerId)
-    dotsDragRef.current = { pointerId: event.pointerId, startX: event.clientX, previewing: false }
-    selectGranularity(granularityAt(event.clientX))
-  }
-
-  const onDotsMove = (event: PointerEvent<HTMLDivElement>) => {
-    const drag = dotsDragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    if (!drag.previewing && Math.abs(event.clientX - drag.startX) > DRAG_PREVIEW_PX) {
-      drag.previewing = menu !== 'granularity'
-      if (drag.previewing) openMenu('granularity')
-    }
-    selectGranularity(granularityAt(event.clientX))
-  }
-
-  const onDotsUp = (event: PointerEvent<HTMLDivElement>) => {
-    const drag = dotsDragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    dotsDragRef.current = null
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
-    if (drag.previewing) setMenu(null)
-  }
-
-  const onDotsKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    const last = TIMELINE_GRANULARITIES.length - 1
-    const next =
-      event.key === 'ArrowLeft' || event.key === 'ArrowDown'
-        ? Math.max(0, granularityIndex - 1)
-        : event.key === 'ArrowRight' || event.key === 'ArrowUp'
-          ? Math.min(last, granularityIndex + 1)
-          : event.key === 'Home'
-            ? 0
-            : event.key === 'End'
-              ? last
-              : null
-    if (next === null) return
-    event.preventDefault()
-    selectGranularity(next)
   }
 
   const frameAt = (clientX: number) => {
@@ -339,29 +301,18 @@ export function StoryTimeSeries({
   return (
     <div ref={cardRef} className={styles.card} aria-label="Slide time series">
       <div className={styles.topRow}>
-        <div className={styles.stepGroup}>
-          <div
-            ref={dotsRef}
-            className={styles.granularitySlider}
-            role="slider"
-            tabIndex={0}
-            aria-label="Time step granularity"
-            aria-valuemin={0}
-            aria-valuemax={TIMELINE_GRANULARITIES.length - 1}
-            aria-valuenow={granularityIndex}
-            aria-valuetext={granularity.label}
-            onPointerDown={onDotsDown}
-            onPointerMove={onDotsMove}
-            onPointerUp={onDotsUp}
-            onPointerCancel={onDotsUp}
-            onKeyDown={onDotsKey}
-          >
-            {TIMELINE_GRANULARITIES.map((item, index) => (
-              <i key={item.id} className={index === granularityIndex ? styles.dotActive : undefined} />
-            ))}
-          </div>
-          <span className={styles.unit}>{granularity.label}</span>
-        </div>
+        <button
+          ref={granularityBtnRef}
+          type="button"
+          className={`${styles.granularityBtn}${menu === 'granularity' ? ` ${styles.controlOpen}` : ''}`}
+          aria-label={`Time step: ${granularity.label}`}
+          aria-haspopup="listbox"
+          aria-expanded={menu === 'granularity'}
+          onClick={() => toggleMenu('granularity')}
+        >
+          <span>{granularity.label}</span>
+          <CaretDown size={14} weight="bold" aria-hidden />
+        </button>
         <div className={styles.controls}>
           {chartsEnabled ? (
             <button
@@ -561,7 +512,9 @@ export function StoryTimeSeries({
                   <p className={styles.menuTitle}>Line charts</p>
                   {chartDraft.length === 0 ? (
                     <p className={styles.chartsEmpty}>
-                      Add a line chart to plot a map layer column along the timeline.
+                      {editable
+                        ? 'Add a line chart to plot a map layer column along the timeline.'
+                        : 'No line charts have been added to this slide.'}
                     </p>
                   ) : (
                     <div className={styles.chartList}>
@@ -578,7 +531,7 @@ export function StoryTimeSeries({
                                 className={styles.chartIconBtn}
                                 aria-label={series.visible ? `Hide ${name}` : `Show ${name}`}
                                 aria-pressed={series.visible}
-                                onClick={() => patchDraft(series.id, { visible: !series.visible })}
+                                onClick={() => toggleChartVisibility(series.id)}
                               >
                                 {series.visible ? (
                                   <Eye size={16} weight="regular" aria-hidden />
@@ -586,47 +539,54 @@ export function StoryTimeSeries({
                                   <EyeSlash size={16} weight="regular" aria-hidden />
                                 )}
                               </button>
-                              <button
-                                type="button"
-                                className={styles.chartIconBtn}
-                                aria-label={`Remove ${name}`}
-                                onClick={() =>
-                                  setChartDraft((current) => current.filter((item) => item.id !== series.id))
-                                }
-                              >
-                                <Trash size={16} weight="regular" aria-hidden />
-                              </button>
+                              {editable ? (
+                                <button
+                                  type="button"
+                                  className={styles.chartIconBtn}
+                                  aria-label={`Remove ${name}`}
+                                  onClick={() =>
+                                    setChartDraft((current) => current.filter((item) => item.id !== series.id))
+                                  }
+                                >
+                                  <Trash size={16} weight="regular" aria-hidden />
+                                </button>
+                              ) : null}
                             </div>
-                            <ConfigSelect
-                              label="Map layer"
-                              value={series.layerId}
-                              options={TIMELINE_CHART_LAYERS.filter(
-                                (layer) =>
-                                  layer.id === series.layerId || freeChartColumns(layer.id, otherLines).length > 0,
-                              ).map((layer) => ({ value: layer.id, label: layer.label }))}
-                              onChange={(layerId) =>
-                                patchDraft(series.id, {
-                                  layerId,
-                                  columnId: (freeChartColumns(layerId, otherLines)[0] ?? chartLayer(layerId).columns[0])
-                                    .id,
-                                })
-                              }
-                            />
-                            <ConfigSelect
-                              label="Column"
-                              value={series.columnId}
-                              options={freeChartColumns(series.layerId, otherLines).map((column) => ({
-                                value: column.id,
-                                label: column.label,
-                              }))}
-                              onChange={(columnId) => patchDraft(series.id, { columnId })}
-                            />
+                            {editable ? (
+                              <>
+                                <ConfigSelect
+                                  label="Map layer"
+                                  value={series.layerId}
+                                  options={TIMELINE_CHART_LAYERS.filter(
+                                    (layer) =>
+                                      layer.id === series.layerId || freeChartColumns(layer.id, otherLines).length > 0,
+                                  ).map((layer) => ({ value: layer.id, label: layer.label }))}
+                                  onChange={(layerId) =>
+                                    patchDraft(series.id, {
+                                      layerId,
+                                      columnId: (
+                                        freeChartColumns(layerId, otherLines)[0] ?? chartLayer(layerId).columns[0]
+                                      ).id,
+                                    })
+                                  }
+                                />
+                                <ConfigSelect
+                                  label="Column"
+                                  value={series.columnId}
+                                  options={freeChartColumns(series.layerId, otherLines).map((column) => ({
+                                    value: column.id,
+                                    label: column.label,
+                                  }))}
+                                  onChange={(columnId) => patchDraft(series.id, { columnId })}
+                                />
+                              </>
+                            ) : null}
                           </div>
                         )
                       })}
                     </div>
                   )}
-                  {hasFreeChartColumn(chartDraft) ? (
+                  {editable && hasFreeChartColumn(chartDraft) ? (
                     <button
                       type="button"
                       className={styles.chartAddBtn}
@@ -636,21 +596,23 @@ export function StoryTimeSeries({
                       Add line chart
                     </button>
                   ) : null}
-                  <div className={styles.chartsFooter}>
-                    <button type="button" className={styles.chartsCancel} onClick={() => setMenu(null)}>
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.chartsSave}
-                      onClick={() => {
-                        onChartsChange?.(chartDraft)
-                        setMenu(null)
-                      }}
-                    >
-                      Save
-                    </button>
-                  </div>
+                  {editable ? (
+                    <div className={styles.chartsFooter}>
+                      <button type="button" className={styles.chartsCancel} onClick={() => setMenu(null)}>
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.chartsSave}
+                        onClick={() => {
+                          onChartsChange?.(chartDraft)
+                          setMenu(null)
+                        }}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  ) : null}
                 </>
               ) : menu === 'granularity' ? (
                 TIMELINE_GRANULARITIES.map((option) => {

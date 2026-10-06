@@ -21,12 +21,11 @@ import {
   PencilSimple,
   Plus,
   Question,
-  Quotes,
   Slideshow,
+  Sparkle,
   SquaresFour,
   Student,
   Table,
-  TextB,
   TextT,
   Play,
   Trash,
@@ -412,6 +411,11 @@ const MAP_LAYERS = [
 ] as const
 
 const CHARTS = STORY_CHARTS
+const AI_ASSET = {
+  id: 'ai-asset',
+  title: 'AI Asset',
+  detail: 'Generate a component with AI',
+} as const
 
 const ASSET_TABS = [
   {
@@ -550,6 +554,22 @@ function FilterGlyph({ icon }: { icon: FilterIcon }) {
   return <CalendarBlank size={28} weight="regular" aria-hidden />
 }
 
+function AiAssetCard() {
+  return (
+    <article className={`${styles.assetCard} ${styles.aiAssetCard}`} aria-label={AI_ASSET.title}>
+      <span className={styles.assetCardClip}>
+        <span className={styles.aiAssetPreview}>
+          <span className={styles.aiAssetIcon} aria-hidden>
+            <Sparkle size={22} weight="fill" />
+          </span>
+          <span className={styles.aiAssetTitle}>{AI_ASSET.title}</span>
+          <span className={styles.aiAssetDetail}>{AI_ASSET.detail}</span>
+        </span>
+      </span>
+    </article>
+  )
+}
+
 function AssetsPicker({
   filters,
   onFiltersChange,
@@ -600,6 +620,10 @@ function AssetsPicker({
       matchesFilter(item.label, item.detail, normalizedQuery),
   )
   const visibleItems = tab === 'layers' ? layerItems : tab === 'charts' ? chartItems : filterItems
+  const showAiAsset =
+    tab === 'charts' &&
+    category === 'All Charts' &&
+    matchesFilter(AI_ASSET.title, AI_ASSET.detail, normalizedQuery)
 
   const selectedItems = selected.flatMap((id) => {
     const layer = MAP_LAYERS.find((item) => item.id === id)
@@ -722,35 +746,38 @@ function AssetsPicker({
               ))}
               </>
             )
-            ) : visibleItems.length === 0 ? (
+            ) : visibleItems.length === 0 && !showAiAsset ? (
               <p className={styles.assetsEmpty}>No assets match.</p>
             ) : (
-              (tab === 'layers' ? layerItems : chartItems).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`${styles.assetCard}${tab === 'charts' ? ` ${styles.assetChartCard}` : ''}${
-                    selected.includes(item.id) ? ` ${styles.assetCardSelected}` : ''
-                  }`}
-                  aria-pressed={selected.includes(item.id)}
-                  onClick={() => toggleSelected(item.id)}
-                >
-                  <span className={styles.assetCardClip}>
-                    {tab === 'charts' ? (
-                      <span className={styles.assetChartPreview}>
-                        <StoryChartPreview id={item.id} />
-                      </span>
-                    ) : (
-                      <>
-                        <span className={styles.assetCardImage}>
-                          <img src={'image' in item ? item.image : ''} alt="" />
+              <>
+                {(tab === 'layers' ? layerItems : chartItems).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`${styles.assetCard}${tab === 'charts' ? ` ${styles.assetChartCard}` : ''}${
+                      selected.includes(item.id) ? ` ${styles.assetCardSelected}` : ''
+                    }`}
+                    aria-pressed={selected.includes(item.id)}
+                    onClick={() => toggleSelected(item.id)}
+                  >
+                    <span className={styles.assetCardClip}>
+                      {tab === 'charts' ? (
+                        <span className={styles.assetChartPreview}>
+                          <StoryChartPreview id={item.id} />
                         </span>
-                        <span className={styles.assetCardTitle}>{item.title}</span>
-                      </>
-                    )}
-                  </span>
-                </button>
-              ))
+                      ) : (
+                        <>
+                          <span className={styles.assetCardImage}>
+                            <img src={'image' in item ? item.image : ''} alt="" />
+                          </span>
+                          <span className={styles.assetCardTitle}>{item.title}</span>
+                        </>
+                      )}
+                    </span>
+                  </button>
+                ))}
+                {showAiAsset ? <AiAssetCard /> : null}
+              </>
             )}
           </div>
         </div>
@@ -829,7 +856,6 @@ const TOOL_TABS: { id: ToolTab; label: string }[] = [
 ]
 
 const STORY_TOOLS: { id: string; label: string; group: ToolGroup; icon: ToolIcon }[] = [
-  { id: 'block-quote', label: 'Block Quote', group: 'text', icon: Quotes },
   { id: 'executive-summary', label: 'Executive Summary', group: 'text', icon: Circle },
   { id: 'image', label: 'Image', group: 'media', icon: ImageIcon },
   { id: 'kpi', label: 'KPI', group: 'text', icon: ChartLine },
@@ -841,16 +867,7 @@ const STORY_TOOLS: { id: string; label: string; group: ToolGroup; icon: ToolIcon
   { id: 'spacing', label: 'Spacing', group: 'misc', icon: WaveSine },
   { id: 'subtitle-deck', label: 'Subtitle · deck', group: 'text', icon: Circle },
   { id: 'table', label: 'Table', group: 'text', icon: Table },
-  { id: 'takeaway-baseline', label: 'Takeaway · baseline', group: 'text', icon: Circle },
-  { id: 'takeaway-consequence', label: 'Takeaway · consequence', group: 'text', icon: Circle },
-  { id: 'takeaway-day', label: 'Takeaway · day', group: 'text', icon: Circle },
-  { id: 'takeaway-fidelity', label: 'Takeaway · fidelity', group: 'text', icon: Circle },
-  { id: 'takeaway-intervention', label: 'Takeaway · intervention', group: 'text', icon: Circle },
-  { id: 'takeaway-queue', label: 'Takeaway · queue', group: 'text', icon: Circle },
   { id: 'text', label: 'Text', group: 'text', icon: TextT },
-  { id: 'title', label: 'Title', group: 'text', icon: TextB },
-  { id: 'title-deck', label: 'Title · deck', group: 'text', icon: Circle },
-  { id: 'title-recommendation', label: 'Title · recommendation', group: 'text', icon: Circle },
   { id: 'video', label: 'Video', group: 'media', icon: VideoCamera },
   { id: 'weekly-waste-density', label: 'Weekly Waste Density per km² KPI', group: 'text', icon: Circle },
 ]
@@ -916,11 +933,6 @@ function ToolsSection() {
   )
 }
 
-const LOGO_OPTIONS = [
-  { value: 'dark', label: 'Dark Mode Logo (Default)' },
-  { value: 'light', label: 'Light Mode Logo' },
-] as const
-
 function MainContentTab({
   storyTitle,
   storyDescription,
@@ -936,56 +948,10 @@ function MainContentTab({
   onStoryDescriptionChange: (value: string) => void
   onPresentationSettingsChange: (settings: StoryPresentationSettings) => void
 }) {
-  const [logoMode, setLogoMode] = useState<'dark' | 'light'>('dark')
-  const [logoMenuOpen, setLogoMenuOpen] = useState(false)
-  const [logoMenuPosition, setLogoMenuPosition] = useState({ top: 0, left: 0, width: 0 })
-  const logoTriggerRef = useRef<HTMLButtonElement>(null)
-  const logoMenuRef = useRef<HTMLDivElement>(null)
   const patchSettings = <K extends keyof StoryPresentationSettings>(
     key: K,
     value: StoryPresentationSettings[K],
   ) => onPresentationSettingsChange({ ...presentationSettings, [key]: value })
-  const logoName =
-    logoMode === 'dark' ? presentationSettings.darkLogoName : presentationSettings.lightLogoName
-  const logoLabel = LOGO_OPTIONS.find((option) => option.value === logoMode)?.label ?? LOGO_OPTIONS[0].label
-
-  const syncLogoMenuPosition = useCallback(() => {
-    const trigger = logoTriggerRef.current
-    if (!trigger) return
-    const rect = trigger.getBoundingClientRect()
-    setLogoMenuPosition({
-      top: rect.bottom + 8,
-      left: Math.min(rect.left, Math.max(8, window.innerWidth - rect.width - 8)),
-      width: rect.width,
-    })
-  }, [])
-
-  useEffect(() => {
-    if (!logoMenuOpen) return
-    syncLogoMenuPosition()
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (logoTriggerRef.current?.contains(target) || logoMenuRef.current?.contains(target)) return
-      setLogoMenuOpen(false)
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.stopImmediatePropagation()
-      setLogoMenuOpen(false)
-      logoTriggerRef.current?.focus()
-    }
-    const onLayout = () => syncLogoMenuPosition()
-    document.addEventListener('mousedown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown, true)
-    window.addEventListener('resize', onLayout)
-    window.addEventListener('scroll', onLayout, true)
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown, true)
-      window.removeEventListener('resize', onLayout)
-      window.removeEventListener('scroll', onLayout, true)
-    }
-  }, [logoMenuOpen, syncLogoMenuPosition])
 
   return (
     <section className={styles.section}>
@@ -1010,115 +976,36 @@ function MainContentTab({
         />
         <span className={styles.charCount}>{storyDescription.length}/300</span>
       </label>
-      <div className={styles.field}>
-        <span className={styles.label}>Logo</span>
-        <div className={styles.logoField}>
-        <div className={styles.logoSelectWrap}>
-          <button
-            ref={logoTriggerRef}
-            type="button"
-            className={`${styles.logoSelect}${logoMenuOpen ? ` ${styles.logoSelectOpen}` : ''}`}
-            aria-label="Logo"
-            aria-haspopup="listbox"
-            aria-expanded={logoMenuOpen}
-            aria-controls="logo-mode-menu"
-            onClick={() => {
-              if (logoMenuOpen) {
-                setLogoMenuOpen(false)
-                return
-              }
-              syncLogoMenuPosition()
-              setLogoMenuOpen(true)
-            }}
-          >
-            <span>{logoLabel}</span>
-            <CaretDown className={styles.logoSelectCaret} size={16} weight="bold" aria-hidden />
-          </button>
-          {logoMenuOpen
-            ? createPortal(
-                <div
-                  ref={logoMenuRef}
-                  id="logo-mode-menu"
-                  className={styles.logoMenu}
-                  role="listbox"
-                  aria-label="Logo"
-                  style={
-                    {
-                      top: logoMenuPosition.top,
-                      left: logoMenuPosition.left,
-                      width: logoMenuPosition.width,
-                    } as CSSProperties
-                  }
-                >
-                  {LOGO_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="option"
-                      aria-selected={option.value === logoMode}
-                      className={option.value === logoMode ? styles.logoMenuSelected : undefined}
-                      onClick={() => {
-                        setLogoMode(option.value)
-                        setLogoMenuOpen(false)
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>,
-                document.body,
-              )
-            : null}
-        </div>
-        <label className={styles.fileSelect}>
-          <input
-            className={styles.fileInput}
-            type="file"
-            accept="image/*"
-            onChange={(event) =>
-              patchSettings(
-                logoMode === 'dark' ? 'darkLogoName' : 'lightLogoName',
-                event.target.files?.[0]?.name ?? '',
-              )
-            }
-          />
-          {logoName || 'Select'}
-        </label>
-        {logoMode === 'light' ? (
-          <p className={styles.settingHelp}>
-            This logo will be used in light mode if provided. Otherwise, the dark mode logo will be
-            used instead.
-          </p>
-        ) : null}
-        </div>
-      </div>
       <SettingToggle
         label="Enable Autoplay Button"
         checked={presentationSettings.autoplay}
         onChange={(checked) => patchSettings('autoplay', checked)}
       />
-      <div className={styles.settingGroup}>
-        <SettingToggle
-          label="Enable Multi-slide Slides"
-          checked={presentationSettings.multiSlide}
-          onChange={(checked) => patchSettings('multiSlide', checked)}
-        />
-        <p className={styles.settingHelp}>
-          When off, the editor hides controls for adding or renaming slides and the bottom slide
-          arrows. Slides content is still saved as usual.
-        </p>
-      </div>
       {presentationSettings.multiSlide ? (
-        <div className={styles.settingGroup}>
-          <SettingToggle
-            label="Enable Pages Mode"
-            checked={presentationSettings.pagesMode}
-            onChange={(checked) => patchSettings('pagesMode', checked)}
-          />
-          <p className={styles.settingHelp}>
-            Shows each slide as a page pill at the top of the story. Click a pill to open its page;
-            the page pills replace the slide arrows in the toolbar.
-          </p>
+        <div className={styles.inlineSetting}>
+          <span className={styles.label}>Slide navigation</span>
+          <div
+            className={`${styles.segmentedControl} ${styles.segmentedControlCompact}`}
+            role="group"
+            aria-label="Slide navigation"
+          >
+            <button
+              type="button"
+              className={`${styles.segmentedBtn}${!presentationSettings.pagesMode ? ` ${styles.segmentedBtnActive}` : ''}`}
+              aria-pressed={!presentationSettings.pagesMode}
+              onClick={() => patchSettings('pagesMode', false)}
+            >
+              Sequential
+            </button>
+            <button
+              type="button"
+              className={`${styles.segmentedBtn}${presentationSettings.pagesMode ? ` ${styles.segmentedBtnActive}` : ''}`}
+              aria-pressed={presentationSettings.pagesMode}
+              onClick={() => patchSettings('pagesMode', true)}
+            >
+              Tabs
+            </button>
+          </div>
         </div>
       ) : null}
     </section>
@@ -1785,66 +1672,9 @@ function SlideEditor({
             <h3 className={`${styles.sectionTitle} ${styles.sectionTitleLarge}`}>Layout</h3>
           </div>
         </div>
-        <div className={styles.inlineSetting}>
-          <span className={styles.label}>Slide Layout</span>
-          <div className={`${styles.segmentedControl} ${styles.segmentedControlCompact}`} aria-label="Slide layout">
-            <button
-              type="button"
-              className={`${styles.segmentedBtn}${
-                slide.layout === 'sidebar' ? ` ${styles.segmentedBtnActive}` : ''
-              }`}
-              aria-pressed={slide.layout === 'sidebar'}
-              onClick={() => onSlideChange('layout', 'sidebar')}
-            >
-              Side Bar
-            </button>
-            <button
-              type="button"
-              className={`${styles.segmentedBtn}${
-                slide.layout === 'full-width' ? ` ${styles.segmentedBtnActive}` : ''
-              }`}
-              aria-pressed={slide.layout === 'full-width'}
-              onClick={() => onSlideChange('layout', 'full-width')}
-            >
-              Full Width
-            </button>
-          </div>
-        </div>
-        {slide.layout === 'sidebar' ? (
-          <div className={styles.inlineSetting}>
-            <span className={styles.label}>Sidebar Width</span>
-            <div className={`${styles.segmentedControl} ${styles.segmentedControlCompact}`} aria-label="Sidebar width">
-              <button
-                type="button"
-                className={`${styles.segmentedBtn}${
-                  slide.sidebarWidth === 'small' ? ` ${styles.segmentedBtnActive}` : ''
-                }`}
-                aria-pressed={slide.sidebarWidth === 'small'}
-                onClick={() => onSlideChange('sidebarWidth', 'small')}
-              >
-                Small
-              </button>
-              <button
-                type="button"
-                className={`${styles.segmentedBtn}${
-                  slide.sidebarWidth === 'large' ? ` ${styles.segmentedBtnActive}` : ''
-                }`}
-                aria-pressed={slide.sidebarWidth === 'large'}
-                onClick={() => onSlideChange('sidebarWidth', 'large')}
-              >
-                Large
-              </button>
-            </div>
-          </div>
-        ) : null}
         {textDirection && onTextDirectionChange ? (
           <TextDirectionField value={textDirection} onChange={onTextDirectionChange} />
         ) : null}
-        <SettingToggle
-          label="Focus Layout"
-          checked={slide.focusLayout}
-          onChange={(checked) => onSlideChange('focusLayout', checked)}
-        />
       </section>
       </>
       ) : null}

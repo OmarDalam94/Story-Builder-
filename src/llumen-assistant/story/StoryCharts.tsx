@@ -165,14 +165,14 @@ export function TrendChart({
   )
 }
 
-const DEMO_EMISSIONS_LABELS = ['750k', '500k', '250k', '0']
-const DEMO_GROUNDWATER = -0.45
-const DEMO_TERRESTRIAL = 8500
-const DEMO_MARINE = 5700
-const DEMO_ONLINE = 425
-const DEMO_SITES = 450
-const DEMO_UPTIME = 94
-const DEMO_OFFLINE_BARS = [35]
+const DEMO_EMISSIONS_LABELS = ['7.5k', '5k', '2.5k', '0']
+const DEMO_GROUNDWATER = 68
+const DEMO_TERRESTRIAL = 443
+const DEMO_MARINE = 156
+const DEMO_ONLINE = 575
+const DEMO_SITES = 599
+const DEMO_UPTIME = 96
+const DEMO_OFFLINE_BARS = [12, 35]
 
 export function EmissionsChart({
   yLabels,
@@ -187,21 +187,21 @@ export function EmissionsChart({
 }) {
   return (
     <>
-      <p className={styles.visualTitle}>Emissions trajectory vs Net-Zero pathway</p>
+      <p className={styles.visualTitle}>Traffic Volume vs Typical Pattern</p>
       {kpi}
       <div className={styles.chartLegend}>
         <span>
           <i className={styles.swatchProjected} />
-          Projected
+          Observed
         </span>
         <span>
           <i className={styles.swatchPlanned} />
-          Planned
+          Typical
         </span>
       </div>
       <TrendChart
         yLabels={yLabels}
-        xLabels={['2030', '2035', '2040', '2045', '2050']}
+        xLabels={['00:00', '04:00', '08:00', '12:00', '16:00', '20:00']}
         line={line}
         lineColor="#7dcea0"
         gradientId={gradientId}
@@ -224,20 +224,20 @@ export function GroundwaterChart({
 }) {
   return (
     <>
-      <p className={styles.visualTitle}>Average Groundwater Level Change (m/year)</p>
+      <p className={styles.visualTitle}>Average Junction Load</p>
       {kpi === undefined ? (
         <p className={styles.visualValue}>
           <strong>
-            <AnimatedNumber value={value} format={formatSigned} />
+            <AnimatedNumber value={value} format={formatCount} />
           </strong>
-          <span>m/year</span>
+          <span>%</span>
         </p>
       ) : (
         kpi
       )}
       <TrendChart
-        yLabels={['+0.5', '0', '-0.50']}
-        xLabels={['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']}
+        yLabels={['100', '50', '0']}
+        xLabels={['00', '02', '04', '06', '08', '10', '12', '14', '16', '18', '20', '22']}
         line={line}
         lineColor="#ee7b93"
         gradientId={gradientId}
@@ -259,13 +259,13 @@ export function BiodiversityChart({
   const terrestrialPct = Math.round((terrestrial / total) * 100)
   return (
     <>
-      <p className={styles.visualTitle}>Biodiversity Activity Events</p>
+      <p className={styles.visualTitle}>Junction Traffic Status</p>
       {kpi === undefined ? (
         <p className={styles.visualValue}>
           <strong>
             <AnimatedNumber value={total} format={formatCount} />
           </strong>
-          <span>Triggers</span>
+          <span>Junctions</span>
         </p>
       ) : (
         kpi
@@ -277,7 +277,7 @@ export function BiodiversityChart({
       <div className={styles.seriesRow}>
         <span>
           <i className={styles.swatchTerrestrial} />
-          Terrestrial Cameras
+          Free-flowing
         </span>
         <b>
           <AnimatedNumber value={terrestrial} format={formatCount} /> (
@@ -288,7 +288,7 @@ export function BiodiversityChart({
       <div className={styles.seriesRow}>
         <span>
           <i className={styles.swatchMarine} />
-          Marine Sensors
+          Congested
         </span>
         <b>
           <AnimatedNumber value={marine} format={formatCount} /> (
@@ -316,19 +316,19 @@ export function MonitoringSitesChart({
   const offline = new Set(offlineBars)
   return (
     <>
-      <p className={styles.visualTitle}>Active Monitoring Sites</p>
+      <p className={styles.visualTitle}>Live Junction Data</p>
       {kpi === undefined ? (
         <p className={styles.visualValue}>
           <strong>
             <AnimatedNumber value={online} format={formatCount} />
           </strong>
-          <span>/{sites} Online</span>
+          <span>/{sites} Reporting</span>
         </p>
       ) : (
         kpi
       )}
       <span className={styles.uptimeChip}>
-        <AnimatedNumber value={uptime} format={formatCount} />% Uptime
+        <AnimatedNumber value={uptime} format={formatCount} />% Coverage
       </span>
       <div className={styles.siteBars} aria-hidden>
         {Array.from({ length: 47 }, (_, index) => (
@@ -342,22 +342,22 @@ export function MonitoringSitesChart({
 export const STORY_CHARTS = [
   {
     id: 'chart-emissions',
-    title: 'Emissions trajectory vs Net-Zero pathway',
+    title: 'Traffic Volume vs Typical Pattern',
     category: 'Trends',
   },
   {
     id: 'chart-groundwater',
-    title: 'Average Groundwater Level Change (m/year)',
+    title: 'Average Junction Load',
     category: 'Trends',
   },
   {
     id: 'chart-biodiversity',
-    title: 'Biodiversity Activity Events',
+    title: 'Junction Traffic Status',
     category: 'Comparison',
   },
   {
     id: 'chart-sites',
-    title: 'Active Monitoring Sites',
+    title: 'Live Junction Data',
     category: 'Distribution',
   },
 ] as const

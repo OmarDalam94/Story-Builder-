@@ -1283,6 +1283,53 @@
   background: #000;
 }
 
+.aiAssetCard {
+  cursor: default;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #16181d;
+}
+
+.aiAssetCard .assetCardClip {
+  background: #16181d;
+}
+
+.aiAssetPreview {
+  display: flex;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 7px;
+  box-sizing: border-box;
+  padding: 20px;
+  color: var(--lc-text-primary);
+  text-align: center;
+}
+
+.aiAssetIcon {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  color: var(--lc-text-secondary);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+
+.aiAssetTitle {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.aiAssetDetail {
+  color: var(--lc-text-tertiary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .assetCardSelected {
   border-color: #70aeff;
 }

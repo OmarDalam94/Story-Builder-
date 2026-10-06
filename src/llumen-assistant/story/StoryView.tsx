@@ -141,7 +141,7 @@ type StoryViewLayout = 'sidebar' | 'grid' | 'comparison'
 type ComparisonChoice = {
   option: ComparisonMapOption
   layers: StoryMapLayerVisibility
-  /** The lower map's own filters and time series, used while the maps are unlinked. */
+  /** The lower map always has its own filters; its time series is used while maps are unlinked. */
   filters?: StoryFilter[]
   timeline?: SlideTimeline
   charts?: TimelineChartSeries[]
@@ -408,7 +408,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     filters
       .filter((filter) => option.source !== 'filters' || option.id !== `filter-${filter.id}`)
       .map((filter) => ({ ...filter }))
-  const lowerFilters = mapsLinked ? filters : (comparison.filters ?? lowerFiltersFor(comparison.option))
+  const lowerFilters = comparison.filters ?? lowerFiltersFor(comparison.option)
   const lowerTimeline = (!mapsLinked && comparison.timeline) || timeline
   const lowerRange = timelineRangeById(lowerTimeline.rangeId)
   const lowerGranularity = timelineGranularityById(lowerTimeline.granularityId)
@@ -428,7 +428,6 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
     setMapsLinked(linked)
     if (linked) {
       setLowerPlaying(false)
-      if (filterTarget === 'lower') setFilterTarget('upper')
       return
     }
     updateComparison((current) => ({
@@ -928,6 +927,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       chartScene={baseScene}
       charts={chartsBySlide[slide.id] ?? NO_TIMELINE_CHARTS}
       onChartsChange={(charts) => setChartsBySlide((current) => ({ ...current, [slide.id]: charts }))}
+      editable={storyMode === 'edit'}
     />
   )
 
@@ -957,6 +957,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       chartPhaseOffset={comparison.option.phaseOffset}
       charts={comparison.charts ?? NO_TIMELINE_CHARTS}
       onChartsChange={(charts) => updateComparison((current) => ({ ...current, charts }))}
+      editable={storyMode === 'edit'}
     />
   )
 
@@ -972,7 +973,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         <span className={styles.linkMapsLabel}>Link maps</span>
         <span className={styles.linkMapsHint}>
           {mapsLinked
-            ? 'Shared camera, time series and filters'
+            ? 'Shared camera and time series; separate filters'
             : 'Each map has its own camera, time series and filters'}
         </span>
       </span>
@@ -1033,7 +1034,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
   }
 
   const editingLowerFilters =
-    editSection === 'filters' && filterTarget === 'lower' && viewLayout === 'comparison' && !mapsLinked
+    editSection === 'filters' && filterTarget === 'lower' && viewLayout === 'comparison'
   const setLowerFilters = (update: (current: StoryFilter[]) => StoryFilter[]) =>
     updateComparison((current) => ({ ...current, filters: update(current.filters ?? lowerFilters) }))
 
@@ -1183,16 +1184,19 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
         <>
           <h2 className={styles.summaryTitle}>Executive Summary</h2>
           <p className={styles.summaryBody}>
-            Key Performance Indicators (KPIs) are the{' '}
-            <em className={styles.summaryEmphasis}>critical navigational instruments</em> that
-            organizations rely upon to understand whether they are on course to reach their
-            strategic objectives or whether adjustments need to be made along the way. At their
-            core, KPIs translate complex business operations into{' '}
-            <em className={styles.summaryEmphasis}>quantifiable metrics</em> that leaders,
-            managers, and individual contributors can use to assess progress, identify trends,
-            and make informed decisions. Without well-defined KPIs, organizations operate in a
-            fog — they may have a general sense of direction, but they lack the precision needed
-            to steer effectively through competitive markets and rapidly changing environments.
+            Abu Dhabi&apos;s traffic operations view combines monitored-junction activity and
+            value-distribution signals across{' '}
+            <em className={styles.summaryEmphasis}>
+              <AnimatedNumber value={scene.legend.junctionCount} format={formatCount} /> junctions
+            </em>
+            . Currently,{' '}
+            <em className={styles.summaryEmphasis}>
+              <AnimatedNumber value={insight.online} format={formatCount} /> junctions are reporting
+            </em>{' '}
+            at <AnimatedNumber value={insight.uptime} format={formatCount} />% data coverage, while{' '}
+            <AnimatedNumber value={insight.marine} format={formatCount} /> show congested conditions.
+            Hourly traffic volume and junction-load trends identify the busiest corridors so
+            operations teams can prioritize signal timing and field response.
           </p>
         </>,
         {
@@ -1203,7 +1207,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       {insightCard(
         'emissions',
         styles.visualCard,
-        'Emissions trajectory',
+        'Traffic volume',
         <EmissionsChart
           yLabels={insight.emissionsLabels}
           line={emissionsLine}
@@ -1213,7 +1217,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       {insightCard(
         'groundwater',
         styles.visualCard,
-        'Groundwater level',
+        'Average junction load',
         <GroundwaterChart
           value={insight.groundwaterValue}
           line={groundwaterLine}
@@ -1223,7 +1227,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       {insightCard(
         'biodiversity',
         styles.visualCard,
-        'Biodiversity activity',
+        'Junction traffic status',
         <BiodiversityChart
           terrestrial={insight.terrestrial}
           marine={insight.marine}
@@ -1233,7 +1237,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
       {insightCard(
         'sites',
         styles.visualCard,
-        'Monitoring sites',
+        'Live junction data',
         <MonitoringSitesChart
           online={insight.online}
           sites={insight.sites}
@@ -1457,13 +1461,11 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
           >
             <p className={styles.storyTitle}>{comparison.option.eyebrow}</p>
             <h2 className={styles.slideTitle}>{comparison.option.title}</h2>
-            {mapsLinked ? null : (
-              <div className={styles.comparisonFilters}>
-                {filterRow('lower', lowerFilters, (filterId) =>
-                  setLowerFilters((current) => current.filter((item) => item.id !== filterId)),
-                )}
-              </div>
-            )}
+            <div className={styles.comparisonFilters}>
+              {filterRow('lower', lowerFilters, (filterId) =>
+                setLowerFilters((current) => current.filter((item) => item.id !== filterId)),
+              )}
+            </div>
           </header>
         ) : null}
 
@@ -1949,7 +1951,7 @@ export function StoryView({ storyId, onBack, onAsk, agentOpen = false }: StoryVi
             [slide.id]: {
               option,
               layers: option.layers,
-              filters: mapsLinked ? undefined : lowerFiltersFor(option),
+              filters: lowerFiltersFor(option),
               timeline: mapsLinked ? undefined : (current[slide.id]?.timeline ?? { ...timeline }),
               charts: current[slide.id]?.charts,
             },

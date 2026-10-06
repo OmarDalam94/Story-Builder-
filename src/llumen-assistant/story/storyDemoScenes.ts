@@ -122,16 +122,16 @@ export const STORY_SCENES: StoryScene[] = [
       ],
     },
     insight: {
-      emissionsLabels: ['750k', '500k', '250k', '0'],
+      emissionsLabels: ['7.5k', '5k', '2.5k', '0'],
       emissionsWarp: (_x, y) => y,
-      groundwaterValue: -0.45,
+      groundwaterValue: 68,
       groundwaterWarp: (_x, y) => y,
-      terrestrial: 8500,
-      marine: 5700,
-      online: 425,
-      sites: 450,
-      uptime: 94,
-      offlineBars: [35],
+      terrestrial: 443,
+      marine: 156,
+      online: 575,
+      sites: 599,
+      uptime: 96,
+      offlineBars: [12, 35],
     },
   },
   {
@@ -164,15 +164,15 @@ export const STORY_SCENES: StoryScene[] = [
       ],
     },
     insight: {
-      emissionsLabels: ['900k', '600k', '300k', '0'],
+      emissionsLabels: ['9k', '6k', '3k', '0'],
       emissionsWarp: (x, y) => clampY(y * (0.55 + 0.25 * (x / 100)) + 6),
-      groundwaterValue: -0.62,
+      groundwaterValue: 82,
       groundwaterWarp: (_x, y) => clampY(50 + (y - 50) * 1.3 + 6),
-      terrestrial: 7820,
-      marine: 4030,
-      online: 398,
-      sites: 450,
-      uptime: 88,
+      terrestrial: 430,
+      marine: 212,
+      online: 591,
+      sites: 642,
+      uptime: 92,
       offlineBars: [6, 19, 35, 40],
     },
   },
@@ -206,15 +206,15 @@ export const STORY_SCENES: StoryScene[] = [
       ],
     },
     insight: {
-      emissionsLabels: ['600k', '400k', '200k', '0'],
+      emissionsLabels: ['6k', '4k', '2k', '0'],
       emissionsWarp: (x, y) => clampY(y + 18 * Math.sin((Math.PI * x) / 100)),
-      groundwaterValue: 0.18,
+      groundwaterValue: 54,
       groundwaterWarp: (x, y) => clampY(50 + (y - 50) * 0.55 - 14 + 5 * Math.sin((Math.PI * 2 * x) / 100)),
-      terrestrial: 7580,
-      marine: 8900,
-      online: 441,
-      sites: 450,
-      uptime: 98,
+      terrestrial: 468,
+      marine: 103,
+      online: 554,
+      sites: 571,
+      uptime: 97,
       offlineBars: [22],
     },
   },
@@ -238,11 +238,11 @@ function spatialWave(lng: number, lat: number, index: number, seed: number) {
   return 0.6 * x + 0.25 * y + 0.35 * signedHash(index, seed)
 }
 
-function offlineBarsFor(insight: StoryScene['insight'], online: number) {
+function offlineBarsFor(insight: StoryScene['insight'], online: number, sites: number) {
   const baseOffline = Math.max(1, insight.sites - insight.online)
   const count = Math.max(
     1,
-    Math.min(12, Math.round((insight.offlineBars.length * (insight.sites - online)) / baseOffline)),
+    Math.min(12, Math.round((insight.offlineBars.length * (sites - online)) / baseOffline)),
   )
   const extra = Array.from({ length: SITE_BAR_COUNT }, (_, index) => index)
     .filter((index) => !insight.offlineBars.includes(index))
@@ -259,7 +259,12 @@ export function sceneAtPhase(scene: StoryScene, phase: number): StoryScene {
   const a = Math.sin(2 * Math.PI * phase)
   const b = Math.sin(4 * Math.PI * phase)
   const { insight, legend } = scene
-  const online = Math.min(insight.sites, Math.round(insight.online * (1 + 0.035 * a - 0.02 * b)))
+  const junctionCount = Math.round(legend.junctionCount * (1 + 0.05 * a + 0.02 * b))
+  const online = Math.min(junctionCount, Math.round(insight.online * (1 + 0.035 * a - 0.02 * b)))
+  const congested = Math.max(
+    0,
+    Math.min(junctionCount, Math.round(insight.marine * (1 - 0.12 * a + 0.06 * b))),
+  )
   return {
     ...scene,
     columnHeight: (lng, lat, base, index) => {
@@ -274,7 +279,7 @@ export function sceneAtPhase(scene: StoryScene, phase: number): StoryScene {
     },
     legend: {
       ...legend,
-      junctionCount: Math.round(legend.junctionCount * (1 + 0.05 * a + 0.02 * b)),
+      junctionCount,
     },
     insight: {
       ...insight,
@@ -284,14 +289,15 @@ export function sceneAtPhase(scene: StoryScene, phase: number): StoryScene {
             12 * a * Math.sin((Math.PI * x) / 100) -
             5 * b * Math.sin((2 * Math.PI * x) / 100),
         ),
-      groundwaterValue: Math.round((insight.groundwaterValue + 0.16 * a + 0.05 * b) * 100) / 100,
+      groundwaterValue: Math.max(0, Math.min(100, Math.round(insight.groundwaterValue + 7 * a + 3 * b))),
       groundwaterWarp: (x, y) =>
         clampY(insight.groundwaterWarp(x, y) - 10 * a * (x / 100) - 4 * b * Math.sin((2 * Math.PI * x) / 100)),
-      terrestrial: Math.round(insight.terrestrial * (1 + 0.14 * a)),
-      marine: Math.round(insight.marine * (1 - 0.12 * a + 0.06 * b)),
+      terrestrial: junctionCount - congested,
+      marine: congested,
       online,
-      uptime: Math.min(100, Math.round(insight.uptime + ((online - insight.online) / insight.sites) * 100)),
-      offlineBars: offlineBarsFor(insight, online),
+      sites: junctionCount,
+      uptime: Math.round((online / junctionCount) * 100),
+      offlineBars: offlineBarsFor(insight, online, junctionCount),
     },
   }
 }
