@@ -68,19 +68,19 @@
   align-items: center;
   gap: 6px;
   height: 28px;
-  padding: 0 12px;
+  padding: 0 8px;
   border: none;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: background 160ms ease;
+  transition: color 160ms ease;
 }
 
 .action:hover {
-  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
 }
 
 .action:disabled {
@@ -89,12 +89,12 @@
 }
 
 .action:disabled:hover {
-  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .bar[aria-busy='true'] .actionPrimary:disabled {
   opacity: 1;
-  background: var(--ai-accent);
+  color: var(--ai-accent);
 }
 
 .spin {
@@ -108,13 +108,12 @@
 }
 
 .actionPrimary {
-  background: var(--ai-accent);
-  color: #0b0f16;
+  color: var(--ai-accent);
   font-weight: 600;
 }
 
 .actionPrimary:hover {
-  background: #8dbfff;
+  color: #a8ceff;
 }
 
 .divider {

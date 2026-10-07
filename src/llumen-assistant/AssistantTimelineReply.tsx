@@ -44,6 +44,8 @@ export type AssistantTimelineReplyProps = {
   onOpenSubcontext?: (block: AgentResponseBlock) => void
   /** Fired after the thinking sequence and all reply blocks finish rendering. */
   onReplyComplete?: () => void
+  /** Fired once per visual block as it appears while the reply animates (not for instant replies). */
+  onVisualReveal?: (componentId: string) => void
   /** Highlights the chip for the component currently open in the detail panel. */
   selectedComponentId?: string | null
   /** When true, skip step animation (used for older turns in the transcript). */
@@ -53,10 +55,10 @@ export type AssistantTimelineReplyProps = {
   className?: string
 }
 
-const HEADLINE_LEAD_MS = 180
-const STEP_PROGRESS_MS = 920
-const STEP_GAP_MS = 160
-const THINKING_STEP_REVEAL_MS = 380
+const HEADLINE_LEAD_MS = 100
+const STEP_PROGRESS_MS = 460
+const STEP_GAP_MS = 80
+const THINKING_STEP_REVEAL_MS = 190
 
 function subscribeReducedMotion(callback: () => void) {
   const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -83,10 +85,10 @@ function splitWordSpaceSegments(text: string): { text: string; isWord: boolean }
   return segments
 }
 
-const WORD_REVEAL_STAGGER_MS = 48
-const WORD_REVEAL_DURATION_MS = 440
-const BLOCK_GAP_MS = 280
-const VISUAL_BLOCK_ENTER_MS = 520
+const WORD_REVEAL_STAGGER_MS = 16
+const WORD_REVEAL_DURATION_MS = 300
+const BLOCK_GAP_MS = 100
+const VISUAL_BLOCK_ENTER_MS = 360
 
 function countWords(text: string) {
   return splitWordSpaceSegments(text).filter((seg) => seg.isWord).length
@@ -425,6 +427,7 @@ export function AssistantTimelineReply({
   onReportOpen,
   onOpenSubcontext,
   onReplyComplete,
+  onVisualReveal,
   selectedComponentId = null,
   instantTimeline = false,
   conversationPanelRef,
@@ -459,6 +462,7 @@ export function AssistantTimelineReply({
   const blockGapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const thoughtStartRef = useRef(Date.now())
   const openedSubcontextKeys = useRef(new Set<string>())
+  const revealedVisualIds = useRef(new Set<string>())
   const replyCompleteNotifiedRef = useRef(false)
 
   useEffect(() => {
@@ -633,6 +637,15 @@ export function AssistantTimelineReply({
       onOpenSubcontext(block)
     }
   }, [useBlocks, blocks, revealedBlockCount, onOpenSubcontext, instantTimeline])
+
+  useEffect(() => {
+    if (!useBlocks || !onVisualReveal || instantTimeline) return
+    for (const block of blocks.slice(0, revealedBlockCount)) {
+      if (block.type !== 'visual' || revealedVisualIds.current.has(block.componentId)) continue
+      revealedVisualIds.current.add(block.componentId)
+      onVisualReveal(block.componentId)
+    }
+  }, [useBlocks, blocks, revealedBlockCount, onVisualReveal, instantTimeline])
 
   const openingLine =
     confirmation && confirmation.trim().length > 0

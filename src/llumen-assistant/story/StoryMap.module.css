@@ -179,6 +179,57 @@
   backdrop-filter: blur(10px);
 }
 
+/* Pinned emergency response above a walled-in area. */
+
+.annotationActionMarker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.annotationAction {
+  box-sizing: border-box;
+  width: 300px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(18, 22, 30, 0.82);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  color: #fff;
+  pointer-events: auto;
+  animation: annotationActionIn 520ms cubic-bezier(0.22, 1, 0.36, 1) 1100ms both;
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+}
+
+.annotationActionBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid rgba(109, 233, 225, 0.22);
+  border-radius: 999px;
+  background: rgba(109, 233, 225, 0.1);
+  color: #6de9e1;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.annotationActionText {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.annotationActionStem {
+  width: 2px;
+  height: 120px;
+  background: linear-gradient(rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0));
+  transform-origin: 50% 100%;
+  animation: annotationStemIn 420ms ease-out 900ms both;
+}
+
 .annotationLeaving > * {
   opacity: 0 !important;
   transition: opacity 240ms ease;
@@ -199,6 +250,17 @@
   from {
     opacity: 0;
     transform: scaleY(0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes annotationActionIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
   }
   to {
     opacity: 1;

@@ -25,6 +25,7 @@ import {
   Check,
   Copy,
   DotsSix,
+  DotsThree,
   DotsThreeVertical,
   Export,
   Eye,
@@ -45,6 +46,7 @@ import {
   Plus,
   Selection,
   Sidebar,
+  Sparkle,
   Student,
   SquaresFour,
   Toolbox,
@@ -114,7 +116,6 @@ import {
 } from './storyAiScenarios'
 import { areaFilterReply, mussafahReply, withMapState } from './storySelectionReplies'
 import {
-  CHART_PERIOD_LABEL,
   PERIOD_LOAD_X,
   PERIOD_VOLUME_LEGEND,
   PERIOD_VOLUME_X,
@@ -167,7 +168,12 @@ export type StoryViewProps = {
    * A new `token` animates the story to `snapshot` (a saved conversation's changes),
    * or back to its original slides when `snapshot` is null.
    */
-  aiState?: { token: number; snapshot: StoryAiSnapshot | null }
+  aiState?: {
+    token: number
+    snapshot: StoryAiSnapshot | null
+    /** Screenshot the map for `onMapCapture` once this change has animated in. */
+    capture?: { stateId: string; delay: number } | null
+  }
   /** Map screenshot for a reply's map-state card, taken after the prompt's animation settles; without it replies get no card. */
   onMapCapture?: (stateId: string, capture: StoryMapCapture) => void
   /** Status bar for the AI-changed story; hidden while select mode shows its own banner. */
@@ -183,8 +189,6 @@ export type StoryViewProps = {
 /** How long a prompt's camera flight and column animation take before the map is captured. */
 const REGION_CAPTURE_DELAY_MS = 4900
 const AREA_CAPTURE_DELAY_MS = 2300
-/** Grace period for the pointer to travel from the card to its "Add to chat" button. */
-const ADD_TO_CHAT_HIDE_MS = 160
 
 export type { StoryAiSnapshot }
 
@@ -446,8 +450,6 @@ export function StoryView({
   const [cameraRequest, setCameraRequest] = useState<{ camera: NonNullable<StoryAiSnapshot['camera']> } | null>(null)
   const [periodCards, setPeriodCards] = useState<ChartCardId[]>([])
   const [annotationRequest, setAnnotationRequest] = useState<StoryAiSnapshot['annotation'] | null>(null)
-  const [chatHover, setChatHover] = useState<{ id: ChartCardId; top: number; left: number } | null>(null)
-  const chatHoverTimerRef = useRef<number | null>(null)
   // Starts below any token so a story opened with a saved snapshot replays its changes on mount.
   const [appliedAiToken, setAppliedAiToken] = useState(-1)
   if (aiState && aiState.token !== appliedAiToken) {
@@ -490,6 +492,13 @@ export function StoryView({
   const onMapHandle = useCallback((handle: StoryMapHandle | null) => {
     mapHandleRef.current = handle
   }, [])
+  const aiCapture = aiState?.capture ?? null
+  useEffect(() => {
+    if (!aiCapture || !onMapCapture) return
+    window.setTimeout(() => {
+      void mapHandleRef.current?.capture().then((capture) => onMapCapture(aiCapture.stateId, capture))
+    }, aiCapture.delay)
+  }, [aiCapture, onMapCapture])
   const rootRef = useRef<HTMLDivElement>(null)
   /** Live drag value; written straight to the CSS variable so the story view skips re-rendering. */
   const splitDragRef = useRef<{ value: number; frame: number | null } | null>(null)
@@ -789,25 +798,9 @@ export function StoryView({
   }, [openCardMenu])
 
   const canAddToChat = Boolean(onAddToChat) && storyMode === 'view' && !selectMode
-  const showAddToChat = (id: ChartCardId, card: HTMLElement) => {
-    if (chatHoverTimerRef.current !== null) window.clearTimeout(chatHoverTimerRef.current)
-    chatHoverTimerRef.current = null
-    const root = rootRef.current?.getBoundingClientRect()
-    if (!root) return
-    const rect = card.getBoundingClientRect()
-    setChatHover({ id, top: rect.top - root.top + 10, left: rect.right - root.left + 8 })
-  }
-  const hideAddToChat = () => {
-    if (chatHoverTimerRef.current !== null) window.clearTimeout(chatHoverTimerRef.current)
-    chatHoverTimerRef.current = window.setTimeout(() => {
-      chatHoverTimerRef.current = null
-      setChatHover(null)
-    }, ADD_TO_CHAT_HIDE_MS)
-  }
-  const addHoveredToChat = (button: HTMLElement) => {
-    if (!chatHover || !onAddToChat) return
-    onAddToChat({ id: chatHover.id, label: INSIGHT_CARD_LABELS[chatHover.id] }, button.getBoundingClientRect())
-    setChatHover(null)
+  const addCardToChat = (id: ChartCardId, button: HTMLElement) => {
+    onAddToChat?.({ id, label: INSIGHT_CARD_LABELS[id] }, button.getBoundingClientRect())
+    button.blur()
   }
 
   const insightCard = (
@@ -840,7 +833,6 @@ export function StoryView({
           styles.insightCard,
           focused || restored ? styles.insightCardFocusIn : '',
           period ? styles.insightCardPeriod : '',
-          chatHover?.id === id ? styles.insightCardChatHover : '',
           prefs.hidden && !focused ? styles.insightCardHidden : '',
           prefs.border ? styles.insightCardBorder : '',
           prefs.outline ? styles.insightCardOutline : '',
@@ -848,16 +840,26 @@ export function StoryView({
           .filter(Boolean)
           .join(' ')}
         style={focusDelay === null ? style : ({ ...style, '--focus-delay': `${focusDelay}ms` } as CSSProperties)}
-        onMouseEnter={chattable ? (event) => showAddToChat(id, event.currentTarget) : undefined}
-        onMouseLeave={chattable ? hideAddToChat : undefined}
       >
         {children}
-        {period ? (
-          <span
-            className={`${styles.periodBadge}${storyMode === 'edit' ? ` ${styles.periodBadgeShifted}` : ''}`}
-          >
-            {CHART_PERIOD_LABEL}
-          </span>
+        {chattable ? (
+          <div className={styles.cardActions} role="toolbar" aria-label={`${title} actions`}>
+            <button type="button" className={styles.cardAction} onClick={(event) => addCardToChat(id, event.currentTarget)}>
+              <ChatCircleText size={14} aria-hidden />
+              Add to chat
+            </button>
+            <button type="button" className={styles.cardAction}>
+              <Sparkle size={14} aria-hidden />
+              Generate
+            </button>
+            <button
+              type="button"
+              className={`${styles.cardAction} ${styles.cardActionIcon}`}
+              aria-label={`More options for ${title}`}
+            >
+              <DotsThree size={16} weight="bold" aria-hidden />
+            </button>
+          </div>
         ) : null}
         {storyMode === 'edit' ? (
           <button
@@ -1890,7 +1892,6 @@ export function StoryView({
                     .filter(Boolean)
                     .join(' ')}
                   aria-label="Story insight"
-                  onScroll={chatHover ? () => setChatHover(null) : undefined}
                 >
                   {insightCards}
                   {storyMode === 'edit'
@@ -2558,23 +2559,6 @@ export function StoryView({
       ) : (
         aiModeBar
       )}
-      {canAddToChat && chatHover ? (
-        <button
-          key={chatHover.id}
-          type="button"
-          className={styles.addToChat}
-          style={{ top: chatHover.top, left: chatHover.left }}
-          onMouseEnter={() => {
-            if (chatHoverTimerRef.current !== null) window.clearTimeout(chatHoverTimerRef.current)
-            chatHoverTimerRef.current = null
-          }}
-          onMouseLeave={hideAddToChat}
-          onClick={(event) => addHoveredToChat(event.currentTarget)}
-        >
-          <ChatCircleText size={14} weight="regular" aria-hidden />
-          Add to chat
-        </button>
-      ) : null}
       <ShareModal
         open={shareOpen}
         title={`Share “${storyTitle}”`}

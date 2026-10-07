@@ -18,10 +18,25 @@ export const TOP_SCHOOLS_PERIOD = 'the last 2 months'
 export const TOP_SCHOOLS_PROMPT =
   'Show me the top 10 schools with the highest traffic around them over the last 2 months, and annotate them on the map.'
 export const ANNOTATION_COLOR = '#ffb547'
+/** A picked area is read as a congested one: red, walled in, with only its top 10 columns left standing. */
+export const LOCATION_ANNOTATION_COLOR = '#ff4d4f'
 
-export function locationPrompt(name: string) {
-  return `Show me the top 10 schools with the highest traffic around them in ${name} over the last 2 months, and annotate them on the map.`
+/** The location as it reads mid-sentence ("the drawn area near …" for drawn ones). */
+export function locationPlace(location: Pick<StoryLocation, 'name' | 'kind'>) {
+  return location.kind === 'drawn' ? location.name.replace(/^Drawn/, 'the drawn') : location.name
 }
+
+/** Picked areas are read as industrial: the prompt asks which schools the area's factory emissions reach. */
+export function locationPrompt(location: Pick<StoryLocation, 'name' | 'kind'>) {
+  return `Show me the schools most affected by emissions from the factories in ${locationPlace(location)} over the last 2 months, and annotate the top 10 on the map.`
+}
+
+/** Students at schools this close to a factory count as affected by the emergency. */
+const AFFECTED_FACTORY_KM = 1
+/** Estimated health and absence cost avoided per affected student, AED. */
+const AED_SAVED_PER_STUDENT = 1350
+/** Demo stand-in for the factory registry: plants within reach of each school close to the industrial belt. */
+const FACTORIES_PER_NEAR_SCHOOL = 2
 
 /** Columns closer than this join the same annotated area. */
 const CLUSTER_KM = 1.7
@@ -108,6 +123,10 @@ export type AnnotatedSchool = {
   level: (typeof SCHOOL_LEVELS)[number]
   /** Peak-hour vehicles within 500 m of the school. */
   peak: number
+  /** Average PM2.5 at the school over the last 2 months, µg/m³. */
+  pm25: number
+  /** Distance to the nearest factory, km. */
+  factoryKm: number
   /** Change vs the 2 months before, in percent. */
   change: number
   students: number
@@ -126,6 +145,17 @@ export type AnnotatedArea = {
   junctions: number
 }
 
+/** The emergency response pinned above an annotated area. */
+export type AnnotationAction = {
+  text: string
+  affected: number
+  total: number
+  /** AED. */
+  saved: number
+  /** Ground point the card is pinned to: the centre of the selected area. */
+  at: [number, number]
+}
+
 export type StoryMapAnnotation = {
   /** Slide whose data the annotation was created from. */
   slide: number
@@ -133,9 +163,12 @@ export type StoryMapAnnotation = {
   layer: 'main' | 'region'
   /** Set when the prompt was scoped to a picked or drawn area. */
   location: string | null
+  /** What the schools are ranked by: nearby traffic, or exposure to the area's factory emissions. */
+  metric: 'traffic' | 'emissions'
   color: string
   schools: AnnotatedSchool[]
   areas: AnnotatedArea[]
+  action: AnnotationAction | null
 }
 
 function hash01(index: number, seed: number) {
@@ -155,11 +188,37 @@ export function nearestDistrict(point: [number, number]) {
   return best.name
 }
 
+/** 8,912 → "8.9k". */
+export function compactCount(value: number) {
+  return value >= 1000 ? `${(value / 1000).toFixed(1).replace(/\.0$/, '')}k` : String(value)
+}
+
+/** 12,030,000 → "12M AED". */
+export function compactAed(value: number) {
+  return value >= 1_000_000 ? `${Math.round(value / 1_000_000)}M AED` : `${compactCount(value)} AED`
+}
+
 export function polygonCenter(polygon: [number, number][]): [number, number] {
   return [
     polygon.reduce((sum, point) => sum + point[0], 0) / polygon.length,
     polygon.reduce((sum, point) => sum + point[1], 0) / polygon.length,
   ]
+}
+
+/** Area-weighted centre of a ring; unlike the vertex mean, dense street traces don't pull it aside. */
+function areaCentroid(ring: [number, number][]): [number, number] {
+  let area = 0
+  let x = 0
+  let y = 0
+  for (let i = 0; i < ring.length; i += 1) {
+    const [x0, y0] = ring[i]
+    const [x1, y1] = ring[(i + 1) % ring.length]
+    const cross = x0 * y1 - x1 * y0
+    area += cross
+    x += (x0 + x1) * cross
+    y += (y0 + y1) * cross
+  }
+  return area === 0 ? polygonCenter(ring) : [x / (3 * area), y / (3 * area)]
 }
 
 /** Single-linkage clusters of the given points. */
@@ -270,6 +329,8 @@ function rankSchools(candidates: Candidate[], maxHeight: number, names: string[]
         type: SCHOOL_TYPES[hash01(index, 8) < 0.62 ? 0 : 1],
         level: SCHOOL_LEVELS[Math.floor(hash01(index, 9) * SCHOOL_LEVELS.length)],
         peak: Math.round((620 + share * 2280) / 10) * 10,
+        pm25: Math.round(38 + share * 74),
+        factoryKm: Math.round((1.9 - share * 1.5 + hash01(index, 12) * 0.3) * 10) / 10,
         change: Math.round(4 + hash01(index, 10) * 22),
         students: Math.round((480 + hash01(index, 11) * 1300) / 10) * 10,
         coordinates,
@@ -321,7 +382,21 @@ export function topSchoolsAnnotation(slide: number): StoryMapAnnotation {
       const polygon = paddedOutline(group.map((school) => school.coordinates))
       return areaFrom(`area-${order + 1}`, nearestDistrict(polygonCenter(polygon)), polygon, group, DEMO_JUNCTIONS)
     })
-  return { slide, layer: 'main', location: null, color: ANNOTATION_COLOR, schools, areas }
+  return { slide, layer: 'main', location: null, metric: 'traffic', color: ANNOTATION_COLOR, schools, areas, action: null }
+}
+
+function emissionsAction(location: StoryLocation, schools: AnnotatedSchool[]): AnnotationAction {
+  const total = schools.reduce((sum, school) => sum + school.students, 0)
+  const near = schools.filter((school) => school.factoryKm <= AFFECTED_FACTORY_KM)
+  const affected = near.reduce((sum, school) => sum + school.students, 0)
+  const factories = Math.max(3, near.length * FACTORIES_PER_NEAR_SCHOOL)
+  return {
+    text: `Instruct the ${factories} factories within 1 km of schools in ${locationPlace(location)} to move production shifts to 03:00 PM – 11:00 PM, Sunday through Thursday`,
+    affected,
+    total,
+    saved: affected * AED_SAVED_PER_STUDENT,
+    at: areaCentroid(location.polygon),
+  }
 }
 
 /** Whether a location's columns come from the Mussafah focus region rather than the island overlay. */
@@ -332,7 +407,7 @@ export function locationUsesRegion(location: StoryLocation) {
   return region > 0 && region >= inside(DEMO_COLUMNS)
 }
 
-/** The 10 tallest columns inside a picked or drawn area; the area itself is the outline. */
+/** The 10 tallest columns inside a picked or drawn area, read as the schools most exposed to its factory emissions. */
 export function locationAnnotation(slide: number, location: StoryLocation): StoryMapAnnotation {
   const region = locationUsesRegion(location)
   const columns = region ? MUSSAFAH_REGION.columns : DEMO_COLUMNS
@@ -352,8 +427,10 @@ export function locationAnnotation(slide: number, location: StoryLocation): Stor
     slide,
     layer: region ? 'region' : 'main',
     location: location.name,
-    color: ANNOTATION_COLOR,
+    metric: 'emissions',
+    color: LOCATION_ANNOTATION_COLOR,
     schools,
     areas: [areaFrom('area-location', location.name, location.polygon, schools, junctions)],
+    action: schools.length > 0 ? emissionsAction(location, schools) : null,
   }
 }

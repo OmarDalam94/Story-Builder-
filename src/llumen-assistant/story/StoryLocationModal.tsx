@@ -6,7 +6,7 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import { MagnifyingGlass, MapPin, PencilSimple, Polygon, Trash, X } from '@phosphor-icons/react'
 import { MUSSAFAH_REGION } from './storyAiScenarios'
 import {
-  ANNOTATION_COLOR,
+  LOCATION_ANNOTATION_COLOR,
   STORY_LOCATIONS,
   drawnLocation,
   locationColumnCount,
@@ -14,6 +14,7 @@ import {
 } from './storyAnnotations'
 import { DEMO_COLUMNS } from './storyDemoMapData'
 import { STORY_MAP_STYLE } from './StoryMap'
+import { traceStreets } from './storyStreetTrace'
 import styles from './StoryEditPanel.module.css'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? ''
@@ -76,6 +77,7 @@ function addLayers(map: mapboxgl.Map) {
     ),
   })
   map.addSource('location-selected', { type: 'geojson', data: empty })
+  map.addSource('location-pending', { type: 'geojson', data: empty })
   map.addSource('location-draft', { type: 'geojson', data: empty })
 
   map.addLayer({
@@ -104,20 +106,26 @@ function addLayers(map: mapboxgl.Map) {
     id: 'location-selected-fill',
     type: 'fill',
     source: 'location-selected',
-    paint: { 'fill-color': ANNOTATION_COLOR, 'fill-opacity': 0.16 },
+    paint: { 'fill-color': LOCATION_ANNOTATION_COLOR, 'fill-opacity': 0.16 },
   })
   map.addLayer({
     id: 'location-selected-line',
     type: 'line',
     source: 'location-selected',
-    paint: { 'line-color': ANNOTATION_COLOR, 'line-width': 2 },
+    paint: { 'line-color': LOCATION_ANNOTATION_COLOR, 'line-width': 2 },
+  })
+  map.addLayer({
+    id: 'location-pending-line',
+    type: 'line',
+    source: 'location-pending',
+    paint: { 'line-color': LOCATION_ANNOTATION_COLOR, 'line-width': 1.5, 'line-opacity': 0.6, 'line-dasharray': [1.5, 1.5] },
   })
   map.addLayer({
     id: 'location-draft-line',
     type: 'line',
     source: 'location-draft',
     filter: ['==', ['geometry-type'], 'LineString'],
-    paint: { 'line-color': ANNOTATION_COLOR, 'line-width': 2, 'line-dasharray': [1.5, 1.5] },
+    paint: { 'line-color': LOCATION_ANNOTATION_COLOR, 'line-width': 2, 'line-dasharray': [1.5, 1.5] },
   })
   map.addLayer({
     id: 'location-draft-points',
@@ -127,7 +135,7 @@ function addLayers(map: mapboxgl.Map) {
     paint: {
       'circle-radius': ['case', ['get', 'first'], 6, 4],
       'circle-color': '#ffffff',
-      'circle-stroke-color': ANNOTATION_COLOR,
+      'circle-stroke-color': LOCATION_ANNOTATION_COLOR,
       'circle-stroke-width': 2,
     },
   })
@@ -145,6 +153,8 @@ export function StoryLocationModal({
   const [ready, setReady] = useState(false)
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<StoryLocation | null>(null)
+  /** `selected`, with its outline snapped to the streets once routing returns. */
+  const [traced, setTraced] = useState<StoryLocation | null>(null)
   const [drawing, setDrawing] = useState(false)
   const [points, setPoints] = useState<Ring>([])
 
@@ -180,12 +190,27 @@ export function StoryLocationModal({
     }
   }, [])
 
+  const location = traced && traced.id === selected?.id ? traced : null
+  const tracing = selected !== null && location === null
+
+  useEffect(() => {
+    if (!selected) return
+    let current = true
+    void traceStreets(selected.polygon).then((polygon) => {
+      if (current) setTraced({ ...selected, polygon })
+    })
+    return () => {
+      current = false
+    }
+  }, [selected])
+
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-    setData(map, 'location-selected', collection(selected ? [polygonFeature(selected.polygon)] : []))
-    if (selected) fitRing(map, selected.polygon)
-  }, [ready, selected])
+    setData(map, 'location-pending', collection(tracing && selected ? [polygonFeature(selected.polygon)] : []))
+    setData(map, 'location-selected', collection(location ? [polygonFeature(location.polygon)] : []))
+    if (selected) fitRing(map, location?.polygon ?? selected.polygon)
+  }, [ready, selected, location, tracing])
 
   useEffect(() => {
     const map = mapRef.current
@@ -268,12 +293,16 @@ export function StoryLocationModal({
     setDrawing(false)
   }
 
-  const columns = selected ? locationColumnCount(selected.polygon) : 0
+  const columns = location ? locationColumnCount(location.polygon) : 0
   const hint = drawing
     ? points.length < 3
       ? 'Click on the map to add points around the area'
       : 'Click the first point or double-click to close the area'
-    : 'Pick an area, or draw one on the map'
+    : tracing
+      ? 'Tracing the area along its streets…'
+      : location
+        ? 'The area follows the streets around it'
+        : 'Pick an area, or draw one on the map'
 
   return createPortal(
     <div className={styles.modalRoot}>
@@ -330,7 +359,9 @@ export function StoryLocationModal({
                       setPoints([])
                       setSelected(location)
                     }}
-                    onDoubleClick={() => onApply(location)}
+                    onDoubleClick={() => {
+                      void traceStreets(location.polygon).then((polygon) => onApply({ ...location, polygon }))
+                    }}
                   >
                     <MapPin size={16} weight={active ? 'fill' : 'regular'} aria-hidden />
                     <span className={styles.locationItemCopy}>
@@ -378,9 +409,13 @@ export function StoryLocationModal({
 
         <footer className={`${styles.mapStyleFooter} ${styles.locationFooter}`}>
           <p className={styles.locationSummary}>
-            {selected ? (
+            {location ? (
               <>
-                <b>{selected.name}</b> · {columns} {columns === 1 ? 'column' : 'columns'}
+                <b>{location.name}</b> · {columns} {columns === 1 ? 'column' : 'columns'}
+              </>
+            ) : selected ? (
+              <>
+                <b>{selected.name}</b> · tracing streets…
               </>
             ) : (
               'No area selected'
@@ -392,8 +427,8 @@ export function StoryLocationModal({
           <button
             type="button"
             className={styles.assetsNext}
-            disabled={!selected}
-            onClick={() => selected && onApply(selected)}
+            disabled={!location}
+            onClick={() => location && onApply(location)}
           >
             Add location
           </button>

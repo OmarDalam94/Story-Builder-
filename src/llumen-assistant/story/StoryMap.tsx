@@ -27,7 +27,11 @@ import {
   type StoryMapCapture,
   type StoryMapRegion,
 } from './storyAiScenarios'
-import type { AnnotatedSchool, StoryMapAnnotation } from './storyAnnotations'
+import {
+  type AnnotatedSchool,
+  type AnnotationAction,
+  type StoryMapAnnotation,
+} from './storyAnnotations'
 import type { StoryCamera, StoryCameraLink } from './storyCameraLink'
 import styles from './StoryMap.module.css'
 
@@ -47,12 +51,24 @@ const ANNOTATION_OUT_MS = 700
 /** Colour the columns outside an annotation fade toward. */
 const ANNOTATION_DIM_RGB: [number, number, number] = [26, 32, 44]
 const ANNOTATION_DIM = 0.55
+/** Walls around a picked area: stacked bands whose opacity falls off upward, so the walls fade out. */
+const ANNOTATION_WALL_BANDS = 12
+const ANNOTATION_WALL_HEIGHT_M = 320
+const ANNOTATION_WALL_WIDTH_M = 6
+const ANNOTATION_WALL_OPACITY = 0.7
 /** Opacity kept by disks outside the annotated areas. */
 const ANNOTATION_DISK_FADE = 0.4
 /** Added to the map padding when framing annotated areas; the top leaves room for tall columns and pins. */
 /** Tall columns reach above the camera, so pins sit on the column no higher than this. */
 const ANNOTATION_PIN_MAX_ALTITUDE_M = 500
 const ANNOTATION_FIT_PADDING = { top: 300, right: 90, bottom: 90, left: 70 }
+/** Gap between the tallest annotated column's top and the action card. */
+const ACTION_CLEARANCE_PX = 36
+/** The action card never rises closer than this to the top of the map. */
+const ACTION_TOP_MARGIN_PX = 96
+/** Zoom backed off from the area fit, so the columns and the action card above them both fit. */
+const ACTION_ZOOM_OUT = 0.45
+const ACTION_MIN_STEM_PX = 80
 /** Zoom levels backed off from the tight fit, so the areas keep some surrounding context. */
 const ANNOTATION_ZOOM_OUT = 0.6
 
@@ -196,6 +212,16 @@ type FrameAnnotation = {
   /** Column index → its tooltip marker. */
   pins: Map<number, mapboxgl.Marker>
   labels: mapboxgl.Marker[]
+  action: ActionPin | null
+}
+
+/** The recommended-action card, floated above the annotated columns on a stem sized each frame. */
+type ActionPin = {
+  card: HTMLElement
+  stem: HTMLElement
+  at: [number, number]
+  /** Column index → its current drawn height, metres. */
+  heights: Map<number, number>
 }
 
 /** Everything one overlay draw needs; tweens update fields and redraw. */
@@ -276,12 +302,46 @@ function drawAnnotationArea(map: mapboxgl.Map, annotation: FrameAnnotation | nul
   if (!map.getLayer('story-annotation-fill')) return
   const mix = annotation?.mix ?? 0
   const color = annotation?.value.color ?? '#ffffff'
+  const walled = Boolean(annotation?.value.location)
   map.setPaintProperty('story-annotation-fill', 'fill-color', color)
-  map.setPaintProperty('story-annotation-fill', 'fill-opacity', 0.12 * mix)
+  map.setPaintProperty('story-annotation-fill', 'fill-opacity', (walled ? 0.16 : 0.12) * mix)
   map.setPaintProperty('story-annotation-glow', 'line-color', color)
-  map.setPaintProperty('story-annotation-glow', 'line-opacity', 0.32 * mix)
+  map.setPaintProperty('story-annotation-glow', 'line-opacity', (walled ? 0.5 : 0.32) * mix)
   map.setPaintProperty('story-annotation-line', 'line-color', color)
-  map.setPaintProperty('story-annotation-line', 'line-opacity', 0.95 * mix)
+  map.setPaintProperty('story-annotation-line', 'line-opacity', (walled ? 0 : 0.95) * mix)
+  for (let band = 0; band < ANNOTATION_WALL_BANDS; band += 1) {
+    const id = `story-annotation-wall-${band}`
+    const falloff = (1 - band / ANNOTATION_WALL_BANDS) ** 1.6
+    map.setPaintProperty(id, 'fill-extrusion-color', color)
+    map.setPaintProperty(id, 'fill-extrusion-opacity', walled ? ANNOTATION_WALL_OPACITY * falloff * mix : 0)
+  }
+}
+
+function addAnnotationWalls(map: mapboxgl.Map) {
+  const step = ANNOTATION_WALL_HEIGHT_M / ANNOTATION_WALL_BANDS
+  for (let band = 0; band < ANNOTATION_WALL_BANDS; band += 1) {
+    map.addLayer({
+      id: `story-annotation-wall-${band}`,
+      type: 'fill-extrusion',
+      source: 'story-annotation',
+      paint: {
+        'fill-extrusion-line-width': ANNOTATION_WALL_WIDTH_M,
+        'fill-extrusion-base': band * step,
+        'fill-extrusion-height': (band + 1) * step,
+        'fill-extrusion-opacity': 0,
+        'fill-extrusion-opacity-transition': { duration: 0 },
+        'fill-extrusion-vertical-gradient': false,
+        'fill-extrusion-emissive-strength': 1,
+        'fill-extrusion-cast-shadows': false,
+      },
+    })
+  }
+}
+
+/** A picked area keeps only its top 10 columns: the rest sink as the annotation fades in. */
+function notedScales(note: FrameAnnotation | null, scales: number[]) {
+  if (!note?.value.location || note.mix <= 0) return scales
+  return scales.map((scale, index) => (note.ranks.has(index) ? scale : scale * (1 - note.mix)))
 }
 
 function areaData(polygon: [number, number][] | null) {
@@ -320,7 +380,7 @@ function drawStory(map: mapboxgl.Map, frame: StoryFrame) {
     columnFeatures(
       COLUMN_GEOMETRY,
       state.heights,
-      scales.columns,
+      notedScales(mainNote, scales.columns),
       (index, height, scale) =>
         notedColor(mainNote, index, scale === 1 ? state.columnColors[index] : rampColor(ramp, height)),
       (index) => mainNote?.ranks.get(index),
@@ -332,7 +392,9 @@ function drawStory(map: mapboxgl.Map, frame: StoryFrame) {
     junctionFeatures(DEMO_JUNCTIONS, state.radii, scales.junctions, (index) => notedFade(mainNote, index)),
   )
   mainNote?.pins.forEach((marker, index) => {
-    marker.setAltitude(Math.min(ANNOTATION_PIN_MAX_ALTITUDE_M, (state.heights[index] ?? 0) * (scales.columns[index] ?? 1)))
+    const height = (state.heights[index] ?? 0) * (scales.columns[index] ?? 1)
+    marker.setAltitude(Math.min(ANNOTATION_PIN_MAX_ALTITUDE_M, height))
+    mainNote.action?.heights.set(index, height)
   })
   if (region) {
     const regionRamp = region.columnRamp
@@ -343,7 +405,7 @@ function drawStory(map: mapboxgl.Map, frame: StoryFrame) {
       columnFeatures(
         frame.regionGeometry,
         regionHeights,
-        scales.regionColumns,
+        notedScales(regionNote, scales.regionColumns),
         (index, h) => notedColor(regionNote, index, rampColor(regionRamp, h)),
         (index) => regionNote?.ranks.get(index),
       ),
@@ -356,11 +418,12 @@ function drawStory(map: mapboxgl.Map, frame: StoryFrame) {
       ),
     )
     regionNote?.pins.forEach((marker, index) => {
-      marker.setAltitude(
-        Math.min(ANNOTATION_PIN_MAX_ALTITUDE_M, (regionHeights[index] ?? 0) * (scales.regionColumns[index] ?? 0)),
-      )
+      const height = (regionHeights[index] ?? 0) * (scales.regionColumns[index] ?? 0)
+      marker.setAltitude(Math.min(ANNOTATION_PIN_MAX_ALTITUDE_M, height))
+      regionNote.action?.heights.set(index, height)
     })
   }
+  placeActionPin(map, note)
   if (map.getLayer('story-junctions')) {
     const core = rgbString(state.diskCore)
     const halo = rgbString(state.diskHalo)
@@ -470,6 +533,7 @@ function mountStoryLayers(map: mapboxgl.Map, frame: StoryFrame) {
   addJunctionLayers(map, 'story-region-junctions', frame.state)
   addColumnLayer(map, 'story-columns')
   addColumnLayer(map, 'story-region-columns')
+  addAnnotationWalls(map)
 
   setSourceData(map, 'story-area', areaData(frame.area))
   setSourceData(map, 'story-annotation', annotationAreaData(frame.annotation))
@@ -484,7 +548,7 @@ function element(tag: string, className: string, text?: string) {
   return node
 }
 
-function schoolPin(school: AnnotatedSchool, color: string) {
+function schoolPin(school: AnnotatedSchool, color: string, metric: StoryMapAnnotation['metric']) {
   const pin = element('div', styles.annotationPin)
   pin.style.setProperty('--annotation-color', color)
   pin.style.setProperty('--annotation-delay', `${380 + school.rank * 70}ms`)
@@ -496,8 +560,15 @@ function schoolPin(school: AnnotatedSchool, color: string) {
   head.append(element('span', styles.annotationTipRank, `#${school.rank}`), element('b', '', school.name))
   const meta = element('p', styles.annotationTipMeta, `${school.district} · ${school.type} · ${school.level}`)
   const stats = element('dl', styles.annotationTipStats)
+  const measures =
+    metric === 'emissions'
+      ? [
+          ['PM2.5 (2-month avg)', `${school.pm25} µg/m³`],
+          ['Nearest factory', `${school.factoryKm} km`],
+        ]
+      : [['Peak traffic (500 m)', `${school.peak.toLocaleString('en-US')} veh/h`]]
   for (const [label, value] of [
-    ['Peak traffic (500 m)', `${school.peak.toLocaleString('en-US')} veh/h`],
+    ...measures,
     ['vs previous 2 months', `+${school.change}%`],
     ['Students', school.students.toLocaleString('en-US')],
   ]) {
@@ -517,10 +588,39 @@ function areaLabel(text: string, color: string) {
   return marker
 }
 
+const SPARKLE_SVG =
+  '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 0.5 9.7 6.3 15.5 8 9.7 9.7 8 15.5 6.3 9.7 0.5 8 6.3 6.3Z"/></svg>'
+
+function actionCard(action: AnnotationAction) {
+  const marker = element('div', styles.annotationActionMarker)
+  const card = element('div', styles.annotationAction)
+  const badge = element('span', styles.annotationActionBadge)
+  badge.innerHTML = SPARKLE_SVG
+  badge.append('Recommended Action')
+  card.append(badge, element('p', styles.annotationActionText, action.text))
+  const stem = element('span', styles.annotationActionStem)
+  marker.append(card, stem)
+  return { marker, card, stem }
+}
+
+/** Sizes the stem so the card clears the tallest annotated column, while keeping the card on screen. */
+function placeActionPin(map: mapboxgl.Map, note: FrameAnnotation | null) {
+  const pin = note?.action
+  if (!pin) return
+  const ground = map.project(pin.at)
+  let top = ground.y
+  for (const school of note.value.schools) {
+    top = Math.min(top, map.project(school.coordinates, pin.heights.get(school.column) ?? 0).y)
+  }
+  const room = ground.y - pin.card.offsetHeight - ACTION_TOP_MARGIN_PX
+  const stem = Math.max(ACTION_MIN_STEM_PX, Math.min(ground.y - top + ACTION_CLEARANCE_PX, room))
+  pin.stem.style.height = `${Math.round(stem)}px`
+}
+
 function addAnnotationMarkers(map: mapboxgl.Map, value: StoryMapAnnotation) {
   const pins = new Map<number, mapboxgl.Marker>()
   for (const school of value.schools) {
-    const marker = new mapboxgl.Marker({ element: schoolPin(school, value.color), anchor: 'bottom' })
+    const marker = new mapboxgl.Marker({ element: schoolPin(school, value.color, value.metric), anchor: 'bottom' })
       .setLngLat(school.coordinates)
       .addTo(map)
     pins.set(school.column, marker)
@@ -530,7 +630,17 @@ function addAnnotationMarkers(map: mapboxgl.Map, value: StoryMapAnnotation) {
       .setLngLat(area.anchor)
       .addTo(map),
   )
-  return { pins, labels }
+  let action: ActionPin | null = null
+  if (value.action) {
+    const { marker, card, stem } = actionCard(value.action)
+    labels.push(
+      new mapboxgl.Marker({ element: marker, anchor: 'bottom' })
+        .setLngLat(value.action.at)
+        .addTo(map),
+    )
+    action = { card, stem, at: value.action.at, heights: new Map() }
+  }
+  return { pins, labels, action }
 }
 
 function removeAnnotationMarkers(annotation: FrameAnnotation) {
@@ -792,6 +902,18 @@ export function StoryMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
+    const onMove = () => placeActionPin(map, frameRef.current.annotation)
+    map.on('move', onMove)
+    map.on('resize', onMove)
+    return () => {
+      map.off('move', onMove)
+      map.off('resize', onMove)
+    }
+  }, [ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
     const sceneChanged = appliedSceneRef.current !== sceneIndex
     if (!sceneChanged && appliedPhaseRef.current === framePhase) return
     appliedSceneRef.current = sceneIndex
@@ -939,7 +1061,7 @@ export function StoryMap({
         if (!fit?.center || fit.zoom === undefined) return
         map.flyTo({
           center: fit.center,
-          zoom: annotation.location ? fit.zoom : fit.zoom - ANNOTATION_ZOOM_OUT,
+          zoom: fit.zoom - (annotation.action ? ACTION_ZOOM_OUT : annotation.location ? 0 : ANNOTATION_ZOOM_OUT),
           pitch,
           bearing,
           duration: CAMERA_DURATION_MS,

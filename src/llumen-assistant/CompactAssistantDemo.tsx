@@ -54,9 +54,9 @@ import { StoryView } from './story/StoryView'
 import { MUSSAFAH_LABEL, type StoryAiSnapshot, type StoryMapCapture } from './story/storyAiScenarios'
 import { StoryMapStatesContext, type StoryMapStates } from './story/storyMapStates'
 import { StoryAiModeBar, type StoryAiModeStatus } from './story/StoryAiModeBar'
-import { isChartCard, periodPrompt, type ChatComponent } from './story/storyChartPeriod'
+import { CHART_PERIOD_LABEL, isChartCard, periodPrompt, type ChatComponent } from './story/storyChartPeriod'
 import { sceneAtPhase, storySceneAt } from './story/storyDemoScenes'
-import { periodReply, topSchoolsReply } from './story/storySelectionReplies'
+import { periodReply, topSchoolsReply, withMapState } from './story/storySelectionReplies'
 import {
   TOP_SCHOOLS_PROMPT,
   locationAnnotation,
@@ -125,7 +125,6 @@ const SUBCONTEXT_EXIT_MS = 280
 /** How long the AI mode bar's Update button spins before the story version is stored. */
 const STORY_UPDATE_MS = 1200
 /** Lets the rail open and start thinking before the attached charts animate to the new period. */
-const PERIOD_APPLY_MS = 900
 
 /** Design-capture presets via `?preview=<name>` (used for Figma handoff). */
 type FigmaPreviewMode =
@@ -339,6 +338,25 @@ function FindingNotificationLayer({
   )
 }
 
+type StoryApplyStage = { visualId: string | null; snapshot: StoryAiSnapshot }
+
+/** Map screenshot for the reply's map-state card, taken once the last change has animated in. */
+type StoryMapCaptureRequest = { stateId: string; delay: number }
+
+type PendingStoryApply = {
+  messageId: string
+  storyId: string | null
+  conversationId: string
+  stages: StoryApplyStage[]
+  applied: number
+  capture: StoryMapCaptureRequest | null
+}
+
+/** Period re-plots leave the map as is; annotations fly the camera, and Mussafah also grows its region. */
+const PERIOD_CAPTURE_DELAY_MS = 700
+const ANNOTATION_CAPTURE_DELAY_MS = 3400
+const REGION_ANNOTATION_CAPTURE_DELAY_MS = 4900
+
 export function CompactAssistantDemo() {
   const previewMode = useMemo(() => readFigmaPreviewMode(), [])
   const previewForceInstant = previewMode != null
@@ -372,6 +390,7 @@ export function CompactAssistantDemo() {
     storyId: string | null
     /** Conversation whose prompts produced `snapshot`; reopened from the AI mode bar. */
     conversationId: string | null
+    capture?: StoryMapCaptureRequest | null
   }>({ token: 0, snapshot: null, storyId: null, conversationId: null })
   const [storyVersions, setStoryVersions] = useState<Record<string, StoryAiSnapshot>>(loadStoryVersions)
   /** Update in progress: the bar spins before `snapshot` becomes the story's saved version. */
@@ -400,7 +419,7 @@ export function CompactAssistantDemo() {
   const [hubMorphFrom, setHubMorphFrom] = useState<DOMRect | null>(null)
   /** Approach 2: story chart cards attached to the hub chatbox via "Add to chat". */
   const [storyChatComponents, setStoryChatComponents] = useState<ChatComponent[]>([])
-  const storyApplyTimerRef = useRef<number | null>(null)
+  const pendingStoryApplyRef = useRef<PendingStoryApply | null>(null)
   const [storySlideIndex, setStorySlideIndex] = useState(0)
   const [hubRailMode, setHubRailMode] = useState<'thread' | 'sessions'>('thread')
   const [chatSearch, setChatSearch] = useState<ChatSearchState>({ open: false, query: '' })
@@ -631,13 +650,47 @@ export function CompactAssistantDemo() {
     if (subcontext.view !== 'closed') setSessionsOpen(false)
   }, [subcontext.view])
 
+  /** Applies the reply's story changes up to `count` stages; the last stage lands when the reply finishes. */
+  const applyStoryStages = useCallback((messageId: string, upTo: number) => {
+    const pending = pendingStoryApplyRef.current
+    if (!pending || pending.messageId !== messageId) return
+    const count = Math.min(upTo, pending.stages.length)
+    if (count <= pending.applied) return
+    pending.applied = count
+    const last = count >= pending.stages.length
+    if (last) pendingStoryApplyRef.current = null
+    const { snapshot } = pending.stages[count - 1]
+    setStoryAi((current) => ({
+      token: current.token + 1,
+      snapshot,
+      storyId: pending.storyId,
+      conversationId: pending.conversationId,
+      capture: last ? pending.capture : null,
+    }))
+  }, [])
+
+  const flushStoryApply = useCallback(() => {
+    const pending = pendingStoryApplyRef.current
+    if (pending) applyStoryStages(pending.messageId, pending.stages.length)
+  }, [applyStoryStages])
+
+  /** A story change shows up on the story when its visual appears in the chat. */
+  const onReplyVisual = useCallback(
+    (messageId: string, componentId: string) => {
+      const index = pendingStoryApplyRef.current?.stages.findIndex((stage) => stage.visualId === componentId) ?? -1
+      if (index >= 0) applyStoryStages(messageId, index + 1)
+    },
+    [applyStoryStages],
+  )
+
   /** Hiding the rail unmounts the thread; mark replies finished so reopening doesn't replay them. */
   const settleReplies = useCallback(() => {
+    flushStoryApply()
     setSettledReplyIds((current) => {
       const ids = messages.filter((msg) => msg.role === 'assistant' && !current.has(msg.id)).map((msg) => msg.id)
       return ids.length > 0 ? new Set([...current, ...ids]) : current
     })
-  }, [messages])
+  }, [flushStoryApply, messages])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -694,12 +747,13 @@ export function CompactAssistantDemo() {
     setStreaming(true)
     setReplyRendering(true)
 
-    const thinkingMs = Math.max(1800, (reply.timeline.length || 1) * 1100)
+    const thinkingMs = Math.max(900, (reply.timeline.length || 1) * 540)
     streamTimer.current = setTimeout(() => {
       streamTimer.current = null
       assistantMsgId.current = null
       setStreaming(false)
     }, thinkingMs)
+    return aid
   }, [])
 
   const pushFindingToast = useCallback(() => {
@@ -807,7 +861,7 @@ export function CompactAssistantDemo() {
     [hubStoryOpen, open, settleReplies],
   )
 
-  /** Approach 2: the attached charts are re-plotted for 2024–2025 once the rail starts replying. */
+  /** Approach 2: each attached chart is re-plotted for 2024–2025 as its chart appears in the reply. */
   const submitStoryComponents = useCallback(
     (text: string, components: HubChatComponent[]) => {
       const attached = components.flatMap((item): ChatComponent[] =>
@@ -816,16 +870,32 @@ export function CompactAssistantDemo() {
       if (attached.length === 0) return
       const prompt = text.trim() || periodPrompt(attached.map((item) => item.label))
       const conversationId = activeConversationId ?? uid()
-      const reply = periodReply(attached, sceneAtPhase(storySceneAt(0), 0))
+      const baseReply = periodReply(attached, sceneAtPhase(storySceneAt(0), 0))
       const previous = storyAi.storyId === null || storyAi.storyId === activeStoryId ? storyAi.snapshot : null
-      const snapshot: StoryAiSnapshot = {
-        cards: previous?.cards ?? null,
-        region: previous?.region ?? false,
-        areaEffect: previous?.areaEffect ?? null,
-        filterLabels: previous?.filterLabels ?? {},
-        periodCards: [...new Set([...(previous?.periodCards ?? []), ...attached.map((item) => item.id)])],
-        annotation: previous?.annotation,
-      }
+      const stages = attached.map((_, index): StoryApplyStage => ({
+        visualId: baseReply.createdComponents?.[index]?.id ?? null,
+        snapshot: {
+          cards: previous?.cards ?? null,
+          region: previous?.region ?? false,
+          areaEffect: previous?.areaEffect ?? null,
+          filterLabels: previous?.filterLabels ?? {},
+          periodCards: [
+            ...new Set([...(previous?.periodCards ?? []), ...attached.slice(0, index + 1).map((card) => card.id)]),
+          ],
+          annotation: previous?.annotation,
+        },
+      }))
+      const stateId = `map-state-${Date.now()}`
+      const reply = aiFeatures.mapStateCards
+        ? withMapState(baseReply, {
+            stateId,
+            snapshot: stages[stages.length - 1].snapshot,
+            title: `${attached.map((item) => item.label).join(' · ')} · ${CHART_PERIOD_LABEL}`,
+            tag: previous?.region ? MUSSAFAH_LABEL : 'Abu Dhabi',
+            meta: `${attached.length} ${attached.length === 1 ? 'chart' : 'charts'} re-plotted`,
+          })
+        : baseReply
+      if (aiFeatures.mapStateCards) setActiveMapStateId(stateId)
       setActiveConversationId(conversationId)
       clearStream()
       setStoryChatComponents([])
@@ -838,14 +908,17 @@ export function CompactAssistantDemo() {
         setChatTitle(titleFromReply(reply))
       }
       setMessages((m) => [...m, { id: uid(), role: 'user', text: prompt }])
-      startAssistantReply(reply)
-      if (storyApplyTimerRef.current !== null) window.clearTimeout(storyApplyTimerRef.current)
-      storyApplyTimerRef.current = window.setTimeout(() => {
-        storyApplyTimerRef.current = null
-        setStoryAi((current) => ({ token: current.token + 1, snapshot, storyId: activeStoryId, conversationId }))
-      }, PERIOD_APPLY_MS)
+      const messageId = startAssistantReply(reply)
+      pendingStoryApplyRef.current = {
+        messageId,
+        storyId: activeStoryId,
+        conversationId,
+        stages,
+        applied: 0,
+        capture: aiFeatures.mapStateCards ? { stateId, delay: PERIOD_CAPTURE_DELAY_MS } : null,
+      }
     },
-    [activeConversationId, activeStoryId, clearStream, messages, startAssistantReply, storyAi],
+    [activeConversationId, activeStoryId, aiFeatures.mapStateCards, clearStream, messages, startAssistantReply, storyAi],
   )
 
   const ownsStoryAi = storyAi.storyId === null || storyAi.storyId === activeStoryId
@@ -858,19 +931,19 @@ export function CompactAssistantDemo() {
   const storyAnnotationPrompt = !storyPrompts
     ? undefined
     : storyLocation && locationInDraft
-      ? locationPrompt(storyLocation.name)
+      ? locationPrompt(storyLocation)
       : !(ownsStoryAi && storyAi.snapshot?.annotation)
         ? TOP_SCHOOLS_PROMPT
         : undefined
 
-  /** Approach 2: the top 10 schools (in a picked location, when set) are annotated once the rail starts replying. */
+  /** Approach 2: the top 10 schools (in a picked location, when set) are annotated as the reply's chart appears. */
   const submitStoryAnnotation = useCallback(
     () => {
       if (streaming) return
       const slide = storySlideIndex
       const location = locationInDraft ? storyLocation : null
       const region = location ? locationUsesRegion(location) : null
-      const reply = topSchoolsReply(location ? locationAnnotation(slide, location) : topSchoolsAnnotation(slide))
+      const annotation = location ? locationAnnotation(slide, location) : topSchoolsAnnotation(slide)
       const conversationId = activeConversationId ?? uid()
       const previous = ownsStoryAi ? storyAi.snapshot : null
       const filterLabels = previous?.filterLabels ?? {}
@@ -882,24 +955,45 @@ export function CompactAssistantDemo() {
         periodCards: previous?.periodCards,
         annotation: location ? { slide, location } : { slide },
       }
+      const stateId = `map-state-${Date.now()}`
+      const place = location?.name ?? 'Abu Dhabi'
+      const baseReply = topSchoolsReply(annotation)
+      const reply = aiFeatures.mapStateCards
+        ? withMapState(baseReply, {
+            stateId,
+            snapshot,
+            title: location
+              ? `Schools exposed to factory emissions · ${place}`
+              : `Top ${annotation.schools.length} schools by traffic · ${place}`,
+            tag: place,
+            meta: `${annotation.schools.length} schools annotated`,
+          })
+        : baseReply
+      if (aiFeatures.mapStateCards) setActiveMapStateId(stateId)
       setDraft('')
       setStoryLocation(null)
       setActiveConversationId(conversationId)
       if (!titleEditedRef.current && !messages.some((msg) => msg.role === 'assistant')) {
         setChatTitle(titleFromReply(reply))
       }
-      const prompt = location ? locationPrompt(location.name) : TOP_SCHOOLS_PROMPT
+      const prompt = location ? locationPrompt(location) : TOP_SCHOOLS_PROMPT
       setMessages((m) => [...m, { id: uid(), role: 'user', text: prompt }])
-      startAssistantReply(reply)
-      if (storyApplyTimerRef.current !== null) window.clearTimeout(storyApplyTimerRef.current)
-      storyApplyTimerRef.current = window.setTimeout(() => {
-        storyApplyTimerRef.current = null
-        setStoryAi((current) => ({ token: current.token + 1, snapshot, storyId: activeStoryId, conversationId }))
-      }, PERIOD_APPLY_MS)
+      const messageId = startAssistantReply(reply)
+      pendingStoryApplyRef.current = {
+        messageId,
+        storyId: activeStoryId,
+        conversationId,
+        stages: [{ visualId: baseReply.createdComponents?.[0]?.id ?? null, snapshot }],
+        applied: 0,
+        capture: aiFeatures.mapStateCards
+          ? { stateId, delay: region ? REGION_ANNOTATION_CAPTURE_DELAY_MS : ANNOTATION_CAPTURE_DELAY_MS }
+          : null,
+      }
     },
     [
       activeConversationId,
       activeStoryId,
+      aiFeatures.mapStateCards,
       locationInDraft,
       messages,
       ownsStoryAi,
@@ -1117,6 +1211,7 @@ export function CompactAssistantDemo() {
   }, [openSubcontext])
 
   const stop = useCallback(() => {
+    pendingStoryApplyRef.current = null
     clearStream()
   }, [clearStream])
 
@@ -1138,8 +1233,7 @@ export function CompactAssistantDemo() {
     setStorySelectMode(false)
     setActiveConversationId(null)
     setActiveMapStateId(null)
-    if (storyApplyTimerRef.current !== null) window.clearTimeout(storyApplyTimerRef.current)
-    storyApplyTimerRef.current = null
+    pendingStoryApplyRef.current = null
     setStoryAi((current) => ({ token: current.token + 1, snapshot: null, storyId: null, conversationId: null }))
   }, [clearStream, closeSubcontextImmediately])
 
@@ -1228,8 +1322,7 @@ export function CompactAssistantDemo() {
 
   /** Back to the story as authored; detaching the conversation also drops its updated version. */
   const resetStoryAi = useCallback(() => {
-    if (storyApplyTimerRef.current !== null) window.clearTimeout(storyApplyTimerRef.current)
-    storyApplyTimerRef.current = null
+    pendingStoryApplyRef.current = null
     settleReplies()
     setOpen(false)
     setSessionsOpen(false)
@@ -1536,8 +1629,8 @@ export function CompactAssistantDemo() {
     ownsActiveStory && storyAi.conversationId ? (storyVersions[storyAi.conversationId] ?? null) : null
   const storyAiSnapshot = ownsActiveStory ? (storyAi.snapshot ?? savedStoryVersion) : null
   const storyAiState = useMemo(
-    () => ({ token: storyAi.token, snapshot: storyAiSnapshot }),
-    [storyAi.token, storyAiSnapshot],
+    () => ({ token: storyAi.token, snapshot: storyAiSnapshot, capture: storyAi.capture ?? null }),
+    [storyAi.token, storyAiSnapshot, storyAi.capture],
   )
   const storyHasUnsavedAi =
     ownsActiveStory && storyAi.snapshot !== null && !sameStorySnapshot(storyAi.snapshot, savedStoryVersion)
@@ -1611,7 +1704,11 @@ export function CompactAssistantDemo() {
                     onComponentSelect={onComponentSelect}
                     onReportOpen={onReportOpen}
                     onOpenSubcontext={onOpenSubcontext}
-                    onReplyComplete={onReplyComplete}
+                    onReplyComplete={() => {
+                      onReplyComplete()
+                      applyStoryStages(assistant.id, Number.POSITIVE_INFINITY)
+                    }}
+                    onVisualReveal={(componentId) => onReplyVisual(assistant.id, componentId)}
                     selectedComponentId={
                       subcontext.view === 'map' || subcontext.view === 'chart'
                         ? subcontext.componentId

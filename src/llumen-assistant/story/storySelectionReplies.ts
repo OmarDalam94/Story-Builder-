@@ -27,7 +27,13 @@ import {
   type ChatComponent,
 } from './storyChartPeriod'
 import type { StoryScene } from './storyDemoScenes'
-import { TOP_SCHOOLS_COUNT, TOP_SCHOOLS_PERIOD, type StoryMapAnnotation } from './storyAnnotations'
+import {
+  compactAed,
+  compactCount,
+  TOP_SCHOOLS_COUNT,
+  TOP_SCHOOLS_PERIOD,
+  type StoryMapAnnotation,
+} from './storyAnnotations'
 
 function timeline(steps: ThinkingStep[]): TimelineStep[] {
   return steps
@@ -329,8 +335,124 @@ export function periodReply(components: ChatComponent[], scene: StoryScene): Ass
   }
 }
 
+/** WHO 2021 24-hour PM2.5 guideline, µg/m³. */
+const PM25_GUIDELINE = 15
+
+/** Approach 2, picked area: the schools most exposed to the area's factory emissions, walled in on the map. */
+function emissionsSchoolsReply(annotation: StoryMapAnnotation, location: string): AssistantReplyPayload {
+  const { schools, areas, action } = annotation
+  const count = schools.length
+  const steps: ThinkingStep[] = [
+    {
+      id: 'schools-intent',
+      kind: 'reasoning',
+      title: `The user wants the schools in ${location} most affected by its factory emissions over ${TOP_SCHOOLS_PERIOD}, annotated on the map…`,
+    },
+    {
+      id: 'schools-location',
+      kind: 'reasoning',
+      title: `Limiting the columns to the ${location} outline from the location context…`,
+    },
+    {
+      id: 'schools-query',
+      kind: 'search',
+      title: `Matching schools in ${location} with PM2.5 readings and their distance to the nearest factory, last 2 months…`,
+    },
+    {
+      id: 'schools-areas',
+      kind: 'reasoning',
+      title: `Walling in ${location} along its streets and pinning the ${count} most exposed schools…`,
+    },
+    {
+      id: 'schools-action',
+      kind: 'reasoning',
+      title: 'Drafting an emergency response and pinning it over the area…',
+    },
+    { id: 'schools-done', kind: 'done', title: 'Map annotated' },
+  ]
+
+  if (count === 0) {
+    return {
+      headline: `No schools found in ${location}.`,
+      headlineDetail: 'Walled in the area on the map; it has no monitored school columns.',
+      thinkingSteps: steps,
+      timeline: timeline(steps),
+      blocks: [
+        {
+          type: 'text',
+          content: `I walled in ${location} on the map, but none of the monitored school columns fall inside it. Try a larger area, or pick a district from the location search.`,
+        },
+      ],
+    }
+  }
+
+  const top = schools[0]
+  const ranking = chartComponent(
+    'story-top-schools',
+    {
+      type: 'bars',
+      title: `Schools most exposed to factory emissions in ${location}`,
+      value: String(top.pm25),
+      unit: 'µg/m³ PM2.5 at #1',
+      color: annotation.color,
+      rows: schools.map((school) => ({
+        label: `${school.rank}. ${school.name}`,
+        value: (school.pm25 / top.pm25) * 100,
+        display: `${school.pm25}`,
+      })),
+    },
+    `Average PM2.5 at each school in ${location}, last 2 months.`,
+  )
+  const average = Math.round(schools.reduce((sum, school) => sum + school.change, 0) / count)
+  const rising = [...schools].sort((a, b) => b.change - a.change)[0]
+  const nearFactory = schools.filter((school) => school.factoryKm <= 1).length
+  const area = areas[0]
+
+  return {
+    headline: `Annotated the ${count} schools most exposed to factory emissions in ${location}.`,
+    headlineDetail: `Walled in ${location} along its streets, kept the ${count} most exposed schools' columns, added a tooltip to each and pinned a recommended action.`,
+    thinkingSteps: steps,
+    timeline: timeline(steps),
+    createdComponents: [ranking],
+    blocks: [
+      {
+        type: 'text',
+        content: `I ranked the schools in ${location} by their exposure to factory emissions — average PM2.5 over ${TOP_SCHOOLS_PERIOD} and distance to the nearest factory — and annotated the ${count} most affected on the map. Only their columns are left standing, marked red, and each has a numbered pin — hover one to see the school's details.`,
+      },
+      { type: 'heading', content: 'Most exposed' },
+      {
+        type: 'text',
+        content: `${top.name} is the most exposed: ${top.pm25} µg/m³ of PM2.5 on average, ${top.factoryKm} km from the nearest factory — about ${Math.round(top.pm25 / PM25_GUIDELINE)}× the WHO 24-hour guideline of ${PM25_GUIDELINE} µg/m³. Exposure at the ${count} schools rose ${average}% compared with the 2 months before.`,
+      },
+      visual(ranking),
+      { type: 'heading', content: 'The area' },
+      {
+        type: 'text',
+        content: `${location} is walled in on the map along its streets: ${area.junctions} monitored ${area.junctions === 1 ? 'junction' : 'junctions'} sit inside it, and ${nearFactory} of the ${count} schools are within 1 km of a factory.`,
+      },
+      ...(action
+        ? [
+            { type: 'heading' as const, content: 'Recommended action' },
+            {
+              type: 'text' as const,
+              content: `${action.text}. Peak stack emissions then fall after the school day (07:30 AM – 02:30 PM) instead of during it, protecting ${compactCount(action.affected)} of the ${compactCount(action.total)} students — those at schools within 1 km of a factory — and saving an estimated ${compactAed(action.saved)} in health and absence costs. Where a shift change isn't feasible, cutting those factories' working hours by 4 hours on high-PM2.5 days gets roughly two-thirds of the benefit. It's pinned over the area on the map.`,
+            },
+          ]
+        : []),
+      { type: 'heading', content: 'Insights' },
+      {
+        type: 'text',
+        content: `${rising.name} saw the sharpest rise (+${rising.change}%). Air-quality alerts for these ${count} schools, indoor breaks on high-PM2.5 days and stack-emission checks at the closest factories would cut their exposure the most.`,
+      },
+    ],
+  }
+}
+
 /** Approach 2: the top 10 schools annotated on the map (highlighted columns, areas, tooltips). */
 export function topSchoolsReply(annotation: StoryMapAnnotation): AssistantReplyPayload {
+  if (annotation.metric === 'emissions' && annotation.location) {
+    return emissionsSchoolsReply(annotation, annotation.location)
+  }
   const { schools, areas, location } = annotation
   const count = schools.length
   const scope = location ? ` in ${location}` : ''
@@ -414,7 +536,11 @@ export function topSchoolsReply(annotation: StoryMapAnnotation): AssistantReplyP
     blocks: [
       {
         type: 'text',
-        content: `I ranked schools${scope} by peak-hour traffic within 500 m over ${TOP_SCHOOLS_PERIOD} and annotated the top ${count} on the map. Their columns are now highlighted, the rest of the map is dimmed, and each column has a numbered pin — hover one to see the school's details.`,
+        content: `I ranked schools${scope} by peak-hour traffic within 500 m over ${TOP_SCHOOLS_PERIOD} and annotated the top ${count} on the map. ${
+          location
+            ? 'Only their columns are left standing, marked red as the most congested'
+            : 'Their columns are now highlighted, the rest of the map is dimmed'
+        }, and each column has a numbered pin — hover one to see the school's details.`,
       },
       { type: 'heading', content: 'Ranking' },
       {
@@ -426,7 +552,7 @@ export function topSchoolsReply(annotation: StoryMapAnnotation): AssistantReplyP
       {
         type: 'text',
         content: location
-          ? `${location} is outlined on the map: ${area.junctions} monitored ${area.junctions === 1 ? 'junction' : 'junctions'} sit inside it, and the disks outside it are faded.`
+          ? `${location} is walled in on the map along its streets: ${area.junctions} monitored ${area.junctions === 1 ? 'junction' : 'junctions'} sit inside it, and the disks outside it are faded.`
           : `The ${count} schools fall into ${areas.length} ${areas.length === 1 ? 'area' : 'areas'}, outlined on the map: ${areaText}.`,
       },
       { type: 'heading', content: 'Insights' },

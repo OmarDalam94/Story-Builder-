@@ -34,8 +34,8 @@ export const AI_APPROACHES: AiApproachOption[] = [
   {
     id: 'approach-2',
     label: 'Approach 2',
-    description: 'Add components to chat',
-    features: { selectTool: false, mapStateCards: false, aiModeBar: true, addToChat: true },
+    description: 'Add components to chat, map snapshots',
+    features: { selectTool: false, mapStateCards: true, aiModeBar: true, addToChat: true },
   },
 ]
 

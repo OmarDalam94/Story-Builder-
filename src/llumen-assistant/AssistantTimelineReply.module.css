@@ -274,7 +274,7 @@
 .wordReveal {
   display: inline-block;
   opacity: 0;
-  animation: wordRevealIn 0.44s var(--lc-ease) forwards;
+  animation: wordRevealIn 0.3s var(--lc-ease) forwards;
 }
 
 @keyframes wordRevealIn {
@@ -591,7 +591,7 @@
 }
 
 .answerBlockEnter {
-  animation: answerBlockIn 0.52s var(--lc-ease) both;
+  animation: answerBlockIn 0.36s var(--lc-ease) both;
   overflow: visible;
 }
 
