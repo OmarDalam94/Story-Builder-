@@ -1,6 +1,6 @@
-import { useId } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { StoryReplyChartData } from '../assistantReplyTypes'
-import { TrendChart } from './StoryCharts'
+import { BiodiversityChart, MonitoringSitesChart, TrendChart } from './StoryCharts'
 import storyStyles from './StoryView.module.css'
 import styles from './StoryReplyChart.module.css'
 
@@ -29,9 +29,47 @@ function Legend({ legend }: { legend: [string, string] }) {
   )
 }
 
+const MORPH_DELAY_MS = 650
+
+/** Flips once the chart has been on screen briefly, so `from` values can animate into the final ones. */
+function useMorphSettled() {
+  const [settled, setSettled] = useState(false)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(true), MORPH_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
+  return settled
+}
+
 /** Story insight-card style chart for assistant replies. */
 export function StoryReplyChart({ chart }: { chart: StoryReplyChartData }) {
   const gradientId = `reply-chart-${useId().replace(/:/g, '')}`
+  const settled = useMorphSettled()
+
+  if (chart.type === 'status') {
+    const values = settled || !chart.from ? chart : chart.from
+    return (
+      <div className={styles.card}>
+        <BiodiversityChart terrestrial={values.terrestrial} marine={values.marine} />
+      </div>
+    )
+  }
+
+  if (chart.type === 'sites') {
+    const values = settled || !chart.from ? chart : chart.from
+    return (
+      <div className={styles.card}>
+        <MonitoringSitesChart
+          online={values.online}
+          sites={chart.sites}
+          uptime={values.uptime}
+          offlineBars={values.offlineBars}
+        />
+      </div>
+    )
+  }
+
+  const line = chart.type !== 'trend' ? '' : settled ? chart.line : (chart.fromLine ?? chart.line)
 
   return (
     <div className={styles.card}>
@@ -57,7 +95,7 @@ export function StoryReplyChart({ chart }: { chart: StoryReplyChartData }) {
             <TrendChart
               yLabels={chart.yLabels}
               xLabels={chart.xLabels}
-              line={chart.line}
+              line={line}
               lineColor={chart.color}
               gradientId={gradientId}
               dashed={chart.dashed}

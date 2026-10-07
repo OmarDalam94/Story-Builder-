@@ -345,7 +345,7 @@ function mix(a: number, b: number, t: number) {
   return a + (b - a) * t
 }
 
-function mixRgb(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
+export function mixRgb(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
   return [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)]
 }
 

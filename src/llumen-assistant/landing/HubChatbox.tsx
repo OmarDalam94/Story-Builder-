@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import {
   ArrowUp,
   At,
+  ChartLineUp,
   ChatText,
   ClockCounterClockwise,
   File,
@@ -80,6 +81,16 @@ function serializeEditor(root: HTMLElement): string {
 function editorIsEmpty(root: HTMLElement): boolean {
   const text = root.innerText.replace(/\u00a0/g, ' ').replace(/\n/g, '').trim()
   return text.length === 0 && !root.querySelector('[data-inline-mention]')
+}
+
+/** Typed text in the editor, ignoring inline mention pills. */
+function editorFreeText(root: HTMLElement): string {
+  let text = ''
+  for (const child of root.childNodes) {
+    if (child instanceof HTMLElement && child.dataset.inlineMention) continue
+    text += child.textContent ?? ''
+  }
+  return text.replace(/\u00a0/g, ' ').trim()
 }
 
 /** Same stagger as transcript answer copy (`AssistantTimelineReply`). */
@@ -201,6 +212,29 @@ export type HubChatboxProps = {
   /** Story select mode; the toggle only renders when `onSelectModeChange` is set. */
   selectMode?: boolean
   onSelectModeChange?: (on: boolean) => void
+  /** Story components attached via "Add to chat"; sending routes to `onSubmitComponents`. */
+  components?: HubChatComponent[]
+  onRemoveComponent?: (id: string) => void
+  /** Typed into the empty editor on the first click while components are attached. */
+  componentPrompt?: string
+  onSubmitComponents?: (text: string, components: HubChatComponent[]) => void
+}
+
+export type HubChatComponent = { id: string; label: string }
+
+const NO_COMPONENTS: HubChatComponent[] = []
+
+const TYPE_STEP = 2
+const TYPE_INTERVAL_MS = 14
+
+function placeCaretAtEnd(editor: HTMLElement) {
+  const sel = window.getSelection()
+  if (!sel) return
+  const range = document.createRange()
+  range.selectNodeContents(editor)
+  range.collapse(false)
+  sel.removeAllRanges()
+  sel.addRange(range)
 }
 
 export function HubChatbox({
@@ -218,6 +252,10 @@ export function HubChatbox({
   onDismissWork,
   selectMode = false,
   onSelectModeChange,
+  components = NO_COMPONENTS,
+  onRemoveComponent,
+  componentPrompt,
+  onSubmitComponents,
 }: HubChatboxProps) {
   const [focused, setFocused] = useState(false)
   const [editorEmpty, setEditorEmpty] = useState(true)
@@ -237,6 +275,10 @@ export function HubChatbox({
   const mentionMenuRef = useRef<HTMLDivElement>(null)
   const slashMenuRef = useRef<HTMLDivElement>(null)
   const insertedChipIdsRef = useRef<Set<string>>(new Set())
+  const typingRef = useRef<{ timer: number; full: string } | null>(null)
+  const typedKeyRef = useRef('')
+  const autoTextRef = useRef('')
+  const typedNodeRef = useRef<Text | null>(null)
   const morphOriginRef = useRef<DOMRect | null>(null)
   const [morphingOut, setMorphingOut] = useState(false)
 
@@ -254,7 +296,8 @@ export function HubChatbox({
     !mentionOpen &&
     !slashMenu &&
     !toasting
-  const canSend = !toasting && (!editorEmpty || files.length > 0)
+  const canSend = !toasting && (!editorEmpty || files.length > 0 || components.length > 0)
+  const componentsKey = components.map((item) => item.id).join('|')
   const interactionLocked = exiting || morphingOut || toasting
   const slashCommands = useMemo(() => filterSlashCommands(slashMenu?.query ?? ''), [slashMenu?.query])
   const categories = useMemo(() => filterCategories(''), [])
@@ -271,6 +314,47 @@ export function HubChatbox({
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`
   }, [])
+
+  const stopTyping = () => {
+    if (typingRef.current) window.clearInterval(typingRef.current.timer)
+    typingRef.current = null
+  }
+
+  const fillComponentPrompt = () => {
+    const editor = editorRef.current
+    if (!editor || !componentPrompt || components.length === 0 || interactionLocked) return
+    if (typedKeyRef.current === componentsKey) return
+    // Mention pills may stay; retype over our own earlier prompt, never over the user's text.
+    const freeText = editorFreeText(editor)
+    const ownNode = typedNodeRef.current && editor.contains(typedNodeRef.current) ? typedNodeRef.current : null
+    const untouched =
+      freeText === '' || typingRef.current !== null || (ownNode !== null && freeText === autoTextRef.current)
+    if (!untouched) return
+    typedKeyRef.current = componentsKey
+    stopTyping()
+    const full = componentPrompt
+    autoTextRef.current = full
+    let node = ownNode
+    if (!node) {
+      for (const child of [...editor.childNodes]) {
+        if (child.nodeType === Node.TEXT_NODE || child.nodeName === 'BR') child.remove()
+      }
+      node = document.createTextNode('')
+      if (editor.lastChild) editor.append(' ')
+      editor.append(node)
+      typedNodeRef.current = node
+    }
+    const target = node
+    let length = 0
+    const timer = window.setInterval(() => {
+      length = Math.min(full.length, length + TYPE_STEP)
+      target.data = full.slice(0, length)
+      if (document.activeElement === editor) placeCaretAtEnd(editor)
+      syncEditor()
+      if (length >= full.length) stopTyping()
+    }, TYPE_INTERVAL_MS)
+    typingRef.current = { timer, full }
+  }
 
   const closeMention = useCallback(() => {
     setMentionOpen(false)
@@ -523,13 +607,21 @@ export function HubChatbox({
   const send = () => {
     if (interactionLocked || !canSend) return
     const editor = editorRef.current
-    const text = editor ? serializeEditor(editor).trim() : serialized.trim()
+    const typedText = typingRef.current?.full
+    stopTyping()
+    const text = typedText ?? (editor ? serializeEditor(editor).trim() : serialized.trim())
     const fileChips: LandingContextChip[] = files.map((file) => ({
       id: file.id,
       label: file.name,
       categoryId: 'assets' as const,
     }))
-    onSubmit(text, fileChips)
+    if (components.length > 0 && onSubmitComponents) {
+      onSubmitComponents(text || componentPrompt || '', components)
+      typedKeyRef.current = ''
+      autoTextRef.current = ''
+    } else {
+      onSubmit(text, fileChips)
+    }
     if (editor) {
       editor.innerHTML = ''
       insertedChipIdsRef.current.clear()
@@ -541,7 +633,8 @@ export function HubChatbox({
   }
 
   const showPlaceholder = !toasting && editorEmpty && files.length === 0
-  const placeholder = showPlaceholder ? 'Ask Llumen anything…' : ''
+  const placeholderText = components.length > 0 ? 'Ask about the attached chart…' : 'Ask Llumen anything…'
+  const placeholder = showPlaceholder ? placeholderText : ''
   const orbIdle = idle || toasting
   const reduceBeamMotion =
     typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -555,6 +648,28 @@ export function HubChatbox({
           if (!toasting) send()
         }}
       >
+        {!toasting && components.length > 0 ? (
+          <div className={styles.componentRow} aria-label="Attached components">
+            {components.map((item) => (
+              <span key={item.id} className={styles.componentChip}>
+                <ChartLineUp size={12} weight="bold" aria-hidden />
+                <span className={styles.componentChipLabel}>{item.label}</span>
+                {onRemoveComponent ? (
+                  <button
+                    type="button"
+                    className={styles.componentChipRemove}
+                    aria-label={`Remove ${item.label}`}
+                    disabled={interactionLocked}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => onRemoveComponent(item.id)}
+                  >
+                    <X size={10} weight="bold" aria-hidden />
+                  </button>
+                ) : null}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {!toasting && files.length > 0 ? (
           <div
             className={`${panelStyles.contextChipRow} ${styles.chipRow}`}
@@ -625,13 +740,15 @@ export function HubChatbox({
               role="textbox"
               aria-multiline="true"
               aria-label="Ask Llumen"
-              aria-placeholder={showPlaceholder ? 'Ask Llumen anything…' : undefined}
+              aria-placeholder={showPlaceholder ? placeholderText : undefined}
               data-placeholder={placeholder || undefined}
               suppressContentEditableWarning
               onInput={() => {
+                stopTyping()
                 syncEditor()
                 refreshSlashMenu()
               }}
+              onPointerDown={fillComponentPrompt}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               onClick={() => {

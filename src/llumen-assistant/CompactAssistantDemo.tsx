@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { CaretDown } from '@phosphor-icons/react'
+import { CaretDown, Sparkle } from '@phosphor-icons/react'
 import { MeshGradient } from '@paper-design/shaders-react'
 import gsap from 'gsap'
 import styles from './compact-assistant.module.css'
@@ -34,18 +34,38 @@ import {
   underwayMessage,
   workUnderwayReply,
 } from './slashCommands'
-import type { HubWorkToast } from './landing/HubChatbox'
+import type { HubChatComponent, HubWorkToast } from './landing/HubChatbox'
 import type { LandingTellMeMorePayload } from './landing/LandingHomeDefault'
 import { InteractionModelSwitcher } from './InteractionModelSwitcher'
+import { HeaderOptionSwitcher } from './HeaderOptionSwitcher'
+import {
+  AI_APPROACHES,
+  aiApproachOption,
+  persistAiApproach,
+  readAiApproach,
+  type AiApproach,
+} from './aiApproach'
 import {
   persistChatInteractionModel,
   readChatInteractionModel,
   type ChatInteractionModel,
 } from './interactionModel'
 import { StoryView } from './story/StoryView'
-import type { StoryAiSnapshot, StoryMapCapture } from './story/storyAiScenarios'
+import { MUSSAFAH_LABEL, type StoryAiSnapshot, type StoryMapCapture } from './story/storyAiScenarios'
 import { StoryMapStatesContext, type StoryMapStates } from './story/storyMapStates'
 import { StoryAiModeBar, type StoryAiModeStatus } from './story/StoryAiModeBar'
+import { isChartCard, periodPrompt, type ChatComponent } from './story/storyChartPeriod'
+import { sceneAtPhase, storySceneAt } from './story/storyDemoScenes'
+import { periodReply, topSchoolsReply } from './story/storySelectionReplies'
+import {
+  TOP_SCHOOLS_PROMPT,
+  locationAnnotation,
+  locationPrompt,
+  locationUsesRegion,
+  topSchoolsAnnotation,
+  type StoryLocation,
+} from './story/storyAnnotations'
+import { StoryLocationModal } from './story/StoryLocationModal'
 import type { LandingStory } from './story/storyDemoData'
 import {
   MESH_COLORS_DEMO_PAGE,
@@ -61,6 +81,7 @@ import type { ChatQuestionIndexItem, ChatSearchState } from './PanelHeader'
 import { useTranscriptSearch } from './useTranscriptSearch'
 import { SessionsPanel } from './SessionsPanel'
 import {
+  conversationApproach,
   conversationSummary,
   loadConversations,
   loadStoryVersions,
@@ -103,6 +124,8 @@ type ChatMessage = SavedChatMessage
 const SUBCONTEXT_EXIT_MS = 280
 /** How long the AI mode bar's Update button spins before the story version is stored. */
 const STORY_UPDATE_MS = 1200
+/** Lets the rail open and start thinking before the attached charts animate to the new period. */
+const PERIOD_APPLY_MS = 900
 
 /** Design-capture presets via `?preview=<name>` (used for Figma handoff). */
 type FigmaPreviewMode =
@@ -323,6 +346,8 @@ export function CompactAssistantDemo() {
     readChatInteractionModel(previewMode != null),
   )
   const isHub = interactionModel === 'hub'
+  const [aiApproach, setAiApproach] = useState<AiApproach>(readAiApproach)
+  const aiFeatures = aiApproachOption(aiApproach).features
   const [open, setOpen] = useState(() => previewMode != null)
   const [expanded, setExpanded] = useState(
     () => previewMode === 'fullscreen' || previewMode === 'fullscreen-sessions',
@@ -373,6 +398,10 @@ export function CompactAssistantDemo() {
   const hubWorkUserTextRef = useRef('')
   const [hubStoryOpen, setHubStoryOpen] = useState(false)
   const [hubMorphFrom, setHubMorphFrom] = useState<DOMRect | null>(null)
+  /** Approach 2: story chart cards attached to the hub chatbox via "Add to chat". */
+  const [storyChatComponents, setStoryChatComponents] = useState<ChatComponent[]>([])
+  const storyApplyTimerRef = useRef<number | null>(null)
+  const [storySlideIndex, setStorySlideIndex] = useState(0)
   const [hubRailMode, setHubRailMode] = useState<'thread' | 'sessions'>('thread')
   const [chatSearch, setChatSearch] = useState<ChatSearchState>({ open: false, query: '' })
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
@@ -737,10 +766,6 @@ export function CompactAssistantDemo() {
     [streaming, messages, startAssistantReply, pushFindingToast],
   )
 
-  const send = useCallback(() => {
-    sendText(draft)
-  }, [draft, sendText])
-
   /** Story select mode already applied its map/panel changes; show the exchange in the rail. */
   const submitStorySelection = useCallback(
     ({ prompt, reply, snapshot }: { prompt: string; reply: AssistantReplyPayload; snapshot: StoryAiSnapshot }) => {
@@ -766,6 +791,138 @@ export function CompactAssistantDemo() {
     [activeConversationId, activeStoryId, clearStream, messages, startAssistantReply],
   )
 
+  /** Approach 2: attach a hovered chart card to the story chatbox. */
+  const addStoryComponentToChat = useCallback(
+    (component: ChatComponent, sourceRect: DOMRect) => {
+      if (open) {
+        settleReplies()
+        setOpen(false)
+        setSessionsOpen(false)
+        setHubRailMode('thread')
+      }
+      setStoryChatComponents((prev) => (prev.some((item) => item.id === component.id) ? prev : [...prev, component]))
+      if (open || !hubStoryOpen) setHubMorphFrom(sourceRect)
+      setHubStoryOpen(true)
+    },
+    [hubStoryOpen, open, settleReplies],
+  )
+
+  /** Approach 2: the attached charts are re-plotted for 2024–2025 once the rail starts replying. */
+  const submitStoryComponents = useCallback(
+    (text: string, components: HubChatComponent[]) => {
+      const attached = components.flatMap((item): ChatComponent[] =>
+        isChartCard(item.id) ? [{ id: item.id, label: item.label }] : [],
+      )
+      if (attached.length === 0) return
+      const prompt = text.trim() || periodPrompt(attached.map((item) => item.label))
+      const conversationId = activeConversationId ?? uid()
+      const reply = periodReply(attached, sceneAtPhase(storySceneAt(0), 0))
+      const previous = storyAi.storyId === null || storyAi.storyId === activeStoryId ? storyAi.snapshot : null
+      const snapshot: StoryAiSnapshot = {
+        cards: previous?.cards ?? null,
+        region: previous?.region ?? false,
+        areaEffect: previous?.areaEffect ?? null,
+        filterLabels: previous?.filterLabels ?? {},
+        periodCards: [...new Set([...(previous?.periodCards ?? []), ...attached.map((item) => item.id)])],
+        annotation: previous?.annotation,
+      }
+      setActiveConversationId(conversationId)
+      clearStream()
+      setStoryChatComponents([])
+      setLandingChips([])
+      setHubRailMode('thread')
+      setSessionsOpen(false)
+      setOpen(true)
+      setExpanded(false)
+      if (!titleEditedRef.current && !messages.some((msg) => msg.role === 'assistant')) {
+        setChatTitle(titleFromReply(reply))
+      }
+      setMessages((m) => [...m, { id: uid(), role: 'user', text: prompt }])
+      startAssistantReply(reply)
+      if (storyApplyTimerRef.current !== null) window.clearTimeout(storyApplyTimerRef.current)
+      storyApplyTimerRef.current = window.setTimeout(() => {
+        storyApplyTimerRef.current = null
+        setStoryAi((current) => ({ token: current.token + 1, snapshot, storyId: activeStoryId, conversationId }))
+      }, PERIOD_APPLY_MS)
+    },
+    [activeConversationId, activeStoryId, clearStream, messages, startAssistantReply, storyAi],
+  )
+
+  const ownsStoryAi = storyAi.storyId === null || storyAi.storyId === activeStoryId
+  const [storyLocation, setStoryLocation] = useState<StoryLocation | null>(null)
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false)
+  const storyPrompts = activeStoryId != null && aiFeatures.addToChat
+  /** The picked location's pill is still in the rail composer. */
+  const locationInDraft = storyLocation !== null && draft.includes(`@${storyLocation.name}`)
+  /** Approach 2's prompts, offered in the rail composer: per location, or city-wide until the map is annotated. */
+  const storyAnnotationPrompt = !storyPrompts
+    ? undefined
+    : storyLocation && locationInDraft
+      ? locationPrompt(storyLocation.name)
+      : !(ownsStoryAi && storyAi.snapshot?.annotation)
+        ? TOP_SCHOOLS_PROMPT
+        : undefined
+
+  /** Approach 2: the top 10 schools (in a picked location, when set) are annotated once the rail starts replying. */
+  const submitStoryAnnotation = useCallback(
+    () => {
+      if (streaming) return
+      const slide = storySlideIndex
+      const location = locationInDraft ? storyLocation : null
+      const region = location ? locationUsesRegion(location) : null
+      const reply = topSchoolsReply(location ? locationAnnotation(slide, location) : topSchoolsAnnotation(slide))
+      const conversationId = activeConversationId ?? uid()
+      const previous = ownsStoryAi ? storyAi.snapshot : null
+      const filterLabels = previous?.filterLabels ?? {}
+      const snapshot: StoryAiSnapshot = {
+        cards: previous?.cards ?? null,
+        region: region ?? previous?.region ?? false,
+        areaEffect: previous?.areaEffect ?? null,
+        filterLabels: region ? { ...filterLabels, loc: MUSSAFAH_LABEL } : filterLabels,
+        periodCards: previous?.periodCards,
+        annotation: location ? { slide, location } : { slide },
+      }
+      setDraft('')
+      setStoryLocation(null)
+      setActiveConversationId(conversationId)
+      if (!titleEditedRef.current && !messages.some((msg) => msg.role === 'assistant')) {
+        setChatTitle(titleFromReply(reply))
+      }
+      const prompt = location ? locationPrompt(location.name) : TOP_SCHOOLS_PROMPT
+      setMessages((m) => [...m, { id: uid(), role: 'user', text: prompt }])
+      startAssistantReply(reply)
+      if (storyApplyTimerRef.current !== null) window.clearTimeout(storyApplyTimerRef.current)
+      storyApplyTimerRef.current = window.setTimeout(() => {
+        storyApplyTimerRef.current = null
+        setStoryAi((current) => ({ token: current.token + 1, snapshot, storyId: activeStoryId, conversationId }))
+      }, PERIOD_APPLY_MS)
+    },
+    [
+      activeConversationId,
+      activeStoryId,
+      locationInDraft,
+      messages,
+      ownsStoryAi,
+      startAssistantReply,
+      storyAi.snapshot,
+      storyLocation,
+      storySlideIndex,
+      streaming,
+    ],
+  )
+
+  const openLocationPicker = useCallback(() => setLocationPickerOpen(true), [])
+  const closeLocationPicker = useCallback(() => setLocationPickerOpen(false), [])
+  const applyStoryLocation = useCallback((location: StoryLocation) => {
+    setLocationPickerOpen(false)
+    setStoryLocation(location)
+    composerRef.current?.insertMention({ id: location.id, name: location.name, categoryId: 'location' })
+  }, [])
+
+  const send = useCallback(() => {
+    sendText(draft)
+  }, [draft, sendText])
+
   useEffect(() => {
     if (!activeConversationId || streaming || !messages.some((msg) => msg.role === 'assistant')) return
     const captures = Object.fromEntries(
@@ -778,6 +935,7 @@ export function CompactAssistantDemo() {
         existing.messages === messages &&
         existing.title === chatTitle &&
         existing.story === storyAi.snapshot &&
+        conversationApproach(existing) === aiApproach &&
         Object.keys(existing.mapCaptures ?? {}).length === Object.keys(captures).length
       ) {
         return list
@@ -790,16 +948,23 @@ export function CompactAssistantDemo() {
         storyId: storyAi.snapshot ? storyAi.storyId : null,
         story: storyAi.snapshot,
         mapCaptures: captures,
+        approach: aiApproach,
       }
       return [saved, ...list.filter((item) => item.id !== activeConversationId)]
     })
-  }, [activeConversationId, streaming, messages, chatTitle, storyAi, mapCaptures])
+  }, [activeConversationId, streaming, messages, chatTitle, storyAi, mapCaptures, aiApproach])
 
   useEffect(() => {
     storeConversations(conversations)
   }, [conversations])
 
-  const sessionSummaries = useMemo(() => conversations.map((item) => conversationSummary(item)), [conversations])
+  const sessionSummaries = useMemo(
+    () =>
+      conversations
+        .filter((item) => conversationApproach(item) === aiApproach)
+        .map((item) => conversationSummary(item)),
+    [conversations, aiApproach],
+  )
 
   const viewHubWorkInChat = useCallback(() => {
     const text = hubWorkUserTextRef.current
@@ -973,8 +1138,23 @@ export function CompactAssistantDemo() {
     setStorySelectMode(false)
     setActiveConversationId(null)
     setActiveMapStateId(null)
+    if (storyApplyTimerRef.current !== null) window.clearTimeout(storyApplyTimerRef.current)
+    storyApplyTimerRef.current = null
     setStoryAi((current) => ({ token: current.token + 1, snapshot: null, storyId: null, conversationId: null }))
   }, [clearStream, closeSubcontextImmediately])
+
+  /** Approaches don't share chats or story changes: switching starts a new chat on the original story. */
+  const changeAiApproach = useCallback(
+    (next: AiApproach) => {
+      persistAiApproach(next)
+      setAiApproach(next)
+      resetConversation()
+      setStoryUpdate(null)
+      setAiBarStoryId(null)
+      setStoryChatComponents([])
+    },
+    [resetConversation],
+  )
 
   /** Puts a saved conversation in the rail without touching the story. */
   const loadConversation = useCallback(
@@ -1048,12 +1228,18 @@ export function CompactAssistantDemo() {
 
   /** Back to the story as authored; detaching the conversation also drops its updated version. */
   const resetStoryAi = useCallback(() => {
+    if (storyApplyTimerRef.current !== null) window.clearTimeout(storyApplyTimerRef.current)
+    storyApplyTimerRef.current = null
+    settleReplies()
+    setOpen(false)
+    setSessionsOpen(false)
+    setHubRailMode('thread')
     setStorySelectMode(false)
     setActiveMapStateId(null)
     setStoryUpdate(null)
     setAiBarStoryId(null)
     setStoryAi((current) => ({ token: current.token + 1, snapshot: null, storyId: null, conversationId: null }))
-  }, [])
+  }, [settleReplies])
 
   const updateStoryAi = useCallback(() => {
     const { snapshot, conversationId } = storyAi
@@ -1183,12 +1369,15 @@ export function CompactAssistantDemo() {
       const slide = story.slides[slideIndex]
       const chipLabel = slide?.title ?? story.storyTitle
       if (isHub) {
-        const chip: LandingContextChip = {
-          id: `story-${story.id ?? chipLabel}-${slideIndex}`,
-          label: chipLabel,
-          categoryId: 'briefings',
+        // Approach 2 attaches charts via "Add to chat" instead of the slide pill.
+        if (!aiFeatures.addToChat) {
+          const chip: LandingContextChip = {
+            id: `story-${story.id ?? chipLabel}-${slideIndex}`,
+            label: chipLabel,
+            categoryId: 'briefings',
+          }
+          setLandingChips((prev) => (prev.some((c) => c.id === chip.id) ? prev : [...prev, chip]))
         }
-        setLandingChips((prev) => (prev.some((c) => c.id === chip.id) ? prev : [...prev, chip]))
         setHubMorphFrom(sourceRect)
         setHubStoryOpen(true)
         setLandingFocusToken((n) => n + 1)
@@ -1203,7 +1392,7 @@ export function CompactAssistantDemo() {
       setOpen(true)
       setExpanded(false)
     },
-    [isHub],
+    [aiFeatures.addToChat, isHub],
   )
 
   const submitLandingAsk = useCallback(
@@ -1371,6 +1560,7 @@ export function CompactAssistantDemo() {
   const hubSessionsRail = isHub && open && hubRailMode === 'sessions'
   const hubThreadRail = isHub && open && hubRailMode === 'thread'
   const railComposerOpen = open && !hubSessionsRail
+  const hubChatComponents = storyActive && aiFeatures.addToChat ? storyChatComponents : []
   const showHub =
     isHub &&
     (hubSessionsRail ||
@@ -1456,8 +1646,14 @@ export function CompactAssistantDemo() {
         onAttachClick={() => {}}
         findingSlot={findingChrome}
         selectMode={storySelectMode}
-        onSelectModeChange={storyActive ? setStorySelectMode : undefined}
+        onSelectModeChange={storyActive && aiFeatures.selectTool ? setStorySelectMode : undefined}
+        suggestedPrompt={streaming ? undefined : storyAnnotationPrompt}
+        onSendSuggested={submitStoryAnnotation}
+        onPickLocation={storyPrompts ? openLocationPicker : undefined}
       />
+      {locationPickerOpen ? (
+        <StoryLocationModal onApply={applyStoryLocation} onClose={closeLocationPicker} />
+      ) : null}
     </div>
   )
 
@@ -1518,28 +1714,41 @@ export function CompactAssistantDemo() {
                 setHubStoryOpen(false)
                 setHubMorphFrom(null)
                 setLandingChips([])
+                setStoryChatComponents([])
                 // Landing hub should reopen idle (orb + placeholder), not focused/engaged.
                 setLandingFocusToken(0)
               }}
               onAsk={isHub ? openStoryAsk : undefined}
               agentOpen={open || hubStoryOpen}
-              selectMode={storySelectMode}
+              selectMode={aiFeatures.selectTool && storySelectMode}
               onSelectModeChange={setStorySelectMode}
-              onSelectionPrompt={submitStorySelection}
-            aiState={storyAiState}
-            onMapCapture={storeMapCapture}
-            aiModeBar={
-              storyBarStatus ? (
-                <StoryAiModeBar
-                  status={storyBarStatus}
-                  conversationOpen={storyConversationOpen}
-                  onReset={resetStoryAi}
-                  onUpdate={updateStoryAi}
-                  onToggleConversation={toggleStoryConversation}
+              onSelectionPrompt={aiFeatures.selectTool ? submitStorySelection : undefined}
+              aiState={storyAiState}
+              onMapCapture={aiFeatures.mapStateCards ? storeMapCapture : undefined}
+              aiModeBar={
+                aiFeatures.aiModeBar && storyBarStatus ? (
+                  <StoryAiModeBar
+                    status={storyBarStatus}
+                    conversationOpen={storyConversationOpen}
+                    onReset={resetStoryAi}
+                    onUpdate={updateStoryAi}
+                    onToggleConversation={toggleStoryConversation}
+                  />
+                ) : null
+              }
+              headerEnd={
+                <HeaderOptionSwitcher
+                  kicker={<Sparkle size={16} weight="regular" aria-hidden />}
+                  label="Llumen AI approach"
+                  options={AI_APPROACHES}
+                  value={aiApproach}
+                  onChange={changeAiApproach}
+                  variant="filter"
                 />
-              ) : null
-            }
-          />
+              }
+              onAddToChat={isHub && aiFeatures.addToChat ? addStoryComponentToChat : undefined}
+              onSlideIndexChange={setStorySlideIndex}
+            />
           ) : (
             <LandingHomeDefault
               onOpenStory={openStoryFromHome}
@@ -1586,6 +1795,7 @@ export function CompactAssistantDemo() {
                     ? () => {
                         setHubStoryOpen(false)
                         setHubMorphFrom(null)
+                        setStoryChatComponents([])
                         if (hubSessionsRail) {
                           setOpen(false)
                           setSessionsOpen(false)
@@ -1598,7 +1808,13 @@ export function CompactAssistantDemo() {
                 onViewWorkInChat={viewHubWorkInChat}
                 onDismissWork={dismissHubWork}
                 selectMode={storySelectMode}
-                onSelectModeChange={storyActive ? setStorySelectMode : undefined}
+                onSelectModeChange={storyActive && aiFeatures.selectTool ? setStorySelectMode : undefined}
+                components={hubChatComponents}
+                onRemoveComponent={(id) => setStoryChatComponents((prev) => prev.filter((item) => item.id !== id))}
+                componentPrompt={
+                  hubChatComponents.length > 0 ? periodPrompt(hubChatComponents.map((item) => item.label)) : undefined
+                }
+                onSubmitComponents={submitStoryComponents}
               />
             ) : null}
           </div>

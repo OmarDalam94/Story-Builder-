@@ -8,6 +8,8 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import { MapControls, type InteractiveMapHandle } from '../InteractiveMap'
 import { DEMO_COLUMNS, DEMO_JUNCTIONS } from './storyDemoMapData'
 import {
+  hexToRgb,
+  mixRgb,
   mixSceneState,
   rampColor,
   rgbString,
@@ -18,12 +20,14 @@ import {
   type StorySceneState,
 } from './storyDemoScenes'
 import {
+  pointInPolygon,
   regionColumnHeights,
   regionJunctionRadii,
   type StoryAreaEffect,
   type StoryMapCapture,
   type StoryMapRegion,
 } from './storyAiScenarios'
+import type { AnnotatedSchool, StoryMapAnnotation } from './storyAnnotations'
 import type { StoryCamera, StoryCameraLink } from './storyCameraLink'
 import styles from './StoryMap.module.css'
 
@@ -38,6 +42,19 @@ const REGION_FLY_MS = 3200
 const REGION_FLY_DELAY_MS = 120
 const REGION_GROW_MS = 4400
 const AREA_TWEEN_MS = 1900
+const ANNOTATION_IN_MS = 1500
+const ANNOTATION_OUT_MS = 700
+/** Colour the columns outside an annotation fade toward. */
+const ANNOTATION_DIM_RGB: [number, number, number] = [26, 32, 44]
+const ANNOTATION_DIM = 0.55
+/** Opacity kept by disks outside the annotated areas. */
+const ANNOTATION_DISK_FADE = 0.4
+/** Added to the map padding when framing annotated areas; the top leaves room for tall columns and pins. */
+/** Tall columns reach above the camera, so pins sit on the column no higher than this. */
+const ANNOTATION_PIN_MAX_ALTITUDE_M = 500
+const ANNOTATION_FIT_PADDING = { top: 300, right: 90, bottom: 90, left: 70 }
+/** Zoom levels backed off from the tight fit, so the areas keep some surrounding context. */
+const ANNOTATION_ZOOM_OUT = 0.6
 
 export type StoryMapLayerVisibility = {
   junctions: boolean
@@ -112,6 +129,8 @@ export type StoryMapProps = {
   areaEffect?: StoryAreaEffect | null
   /** A new object flies the camera to `camera` (raw zoom, no offset applied). */
   cameraRequest?: { camera: StorySceneCamera } | null
+  /** Highlighted columns, outlined areas and per-column tooltips, anchored to the map. */
+  annotation?: StoryMapAnnotation | null
   onHandle?: (handle: StoryMapHandle | null) => void
 }
 
@@ -166,6 +185,19 @@ type FeatureScales = {
   regionJunctions: number[]
 }
 
+type FrameAnnotation = {
+  value: StoryMapAnnotation
+  rgb: [number, number, number]
+  /** Column index → rank. */
+  ranks: Map<number, number>
+  junctionInside: boolean[]
+  /** 0…1 fade-in of the highlight colours and area outlines. */
+  mix: number
+  /** Column index → its tooltip marker. */
+  pins: Map<number, mapboxgl.Marker>
+  labels: mapboxgl.Marker[]
+}
+
 /** Everything one overlay draw needs; tweens update fields and redraw. */
 type StoryFrame = {
   state: StorySceneState
@@ -175,6 +207,7 @@ type StoryFrame = {
   regionGeometry: ColumnGeometry[]
   phase: number
   area: [number, number][] | null
+  annotation: FrameAnnotation | null
 }
 
 const SCALE_KEYS = ['columns', 'junctions', 'regionColumns', 'regionJunctions'] as const
@@ -195,29 +228,60 @@ function columnFeatures(
   heights: number[],
   scales: number[],
   color: (index: number, height: number, scale: number) => [number, number, number],
+  rank?: (index: number) => number | undefined,
 ) {
   const features: DemoFeature[] = []
   geometry.forEach((ring, index) => {
     const scale = scales[index] ?? 1
     const height = (heights[index] ?? 0) * scale
     if (height < 1) return
+    const properties: DemoFeature['properties'] = { height, color: rgbString(color(index, height, scale)) }
+    const featureRank = rank?.(index)
+    if (featureRank !== undefined) properties.rank = featureRank
+    features.push({ type: 'Feature', properties, geometry: ring })
+  })
+  return featureCollection(features)
+}
+
+function junctionFeatures(
+  points: [number, number, number][],
+  radii: number[],
+  scales: number[],
+  fade: (index: number) => number = () => 1,
+) {
+  const features: DemoFeature[] = []
+  points.forEach(([lng, lat], index) => {
+    const radius = (radii[index] ?? 0) * (scales[index] ?? 1)
+    if (radius < 0.5) return
     features.push({
       type: 'Feature',
-      properties: { height, color: rgbString(color(index, height, scale)) },
-      geometry: ring,
+      properties: { radius, fade: fade(index) },
+      geometry: { type: 'Point', coordinates: [lng, lat] },
     })
   })
   return featureCollection(features)
 }
 
-function junctionFeatures(points: [number, number, number][], radii: number[], scales: number[]) {
-  const features: DemoFeature[] = []
-  points.forEach(([lng, lat], index) => {
-    const radius = (radii[index] ?? 0) * (scales[index] ?? 1)
-    if (radius < 0.5) return
-    features.push({ type: 'Feature', properties: { radius }, geometry: { type: 'Point', coordinates: [lng, lat] } })
-  })
-  return featureCollection(features)
+function annotationAreaData(annotation: FrameAnnotation | null) {
+  return featureCollection(
+    (annotation?.value.areas ?? []).map((area) => ({
+      type: 'Feature' as const,
+      properties: {},
+      geometry: { type: 'Polygon' as const, coordinates: [[...area.polygon, area.polygon[0]]] },
+    })),
+  )
+}
+
+function drawAnnotationArea(map: mapboxgl.Map, annotation: FrameAnnotation | null) {
+  if (!map.getLayer('story-annotation-fill')) return
+  const mix = annotation?.mix ?? 0
+  const color = annotation?.value.color ?? '#ffffff'
+  map.setPaintProperty('story-annotation-fill', 'fill-color', color)
+  map.setPaintProperty('story-annotation-fill', 'fill-opacity', 0.12 * mix)
+  map.setPaintProperty('story-annotation-glow', 'line-color', color)
+  map.setPaintProperty('story-annotation-glow', 'line-opacity', 0.32 * mix)
+  map.setPaintProperty('story-annotation-line', 'line-color', color)
+  map.setPaintProperty('story-annotation-line', 'line-opacity', 0.95 * mix)
 }
 
 function areaData(polygon: [number, number][] | null) {
@@ -235,30 +299,67 @@ function setSourceData(map: mapboxgl.Map, id: string, data: ReturnType<typeof fe
   ;(map.getSource(id) as mapboxgl.GeoJSONSource | undefined)?.setData(data)
 }
 
+function notedColor(note: FrameAnnotation | null, index: number, base: [number, number, number]) {
+  if (!note || note.mix <= 0) return base
+  return note.ranks.has(index)
+    ? mixRgb(base, note.rgb, note.mix)
+    : mixRgb(base, ANNOTATION_DIM_RGB, ANNOTATION_DIM * note.mix)
+}
+
+function notedFade(note: FrameAnnotation | null, index: number) {
+  return note && note.mix > 0 && !note.junctionInside[index] ? 1 - (1 - ANNOTATION_DISK_FADE) * note.mix : 1
+}
+
 function drawStory(map: mapboxgl.Map, frame: StoryFrame) {
-  const { state, ramp, scales, region } = frame
+  const { state, ramp, scales, region, annotation: note } = frame
+  const mainNote = note?.value.layer === 'main' ? note : null
+  const regionNote = note?.value.layer === 'region' ? note : null
   setSourceData(
     map,
     'story-columns',
-    columnFeatures(COLUMN_GEOMETRY, state.heights, scales.columns, (index, height, scale) =>
-      scale === 1 ? state.columnColors[index] : rampColor(ramp, height),
+    columnFeatures(
+      COLUMN_GEOMETRY,
+      state.heights,
+      scales.columns,
+      (index, height, scale) =>
+        notedColor(mainNote, index, scale === 1 ? state.columnColors[index] : rampColor(ramp, height)),
+      (index) => mainNote?.ranks.get(index),
     ),
   )
-  setSourceData(map, 'story-junctions', junctionFeatures(DEMO_JUNCTIONS, state.radii, scales.junctions))
+  setSourceData(
+    map,
+    'story-junctions',
+    junctionFeatures(DEMO_JUNCTIONS, state.radii, scales.junctions, (index) => notedFade(mainNote, index)),
+  )
+  mainNote?.pins.forEach((marker, index) => {
+    marker.setAltitude(Math.min(ANNOTATION_PIN_MAX_ALTITUDE_M, (state.heights[index] ?? 0) * (scales.columns[index] ?? 1)))
+  })
   if (region) {
     const regionRamp = region.columnRamp
+    const regionHeights = regionColumnHeights(region, frame.phase)
     setSourceData(
       map,
       'story-region-columns',
-      columnFeatures(frame.regionGeometry, regionColumnHeights(region, frame.phase), scales.regionColumns, (_i, h) =>
-        rampColor(regionRamp, h),
+      columnFeatures(
+        frame.regionGeometry,
+        regionHeights,
+        scales.regionColumns,
+        (index, h) => notedColor(regionNote, index, rampColor(regionRamp, h)),
+        (index) => regionNote?.ranks.get(index),
       ),
     )
     setSourceData(
       map,
       'story-region-junctions',
-      junctionFeatures(region.junctions, regionJunctionRadii(region, frame.phase), scales.regionJunctions),
+      junctionFeatures(region.junctions, regionJunctionRadii(region, frame.phase), scales.regionJunctions, (index) =>
+        notedFade(regionNote, index),
+      ),
     )
+    regionNote?.pins.forEach((marker, index) => {
+      marker.setAltitude(
+        Math.min(ANNOTATION_PIN_MAX_ALTITUDE_M, (regionHeights[index] ?? 0) * (scales.regionColumns[index] ?? 0)),
+      )
+    })
   }
   if (map.getLayer('story-junctions')) {
     const core = rgbString(state.diskCore)
@@ -278,7 +379,7 @@ function addJunctionLayers(map: mapboxgl.Map, id: string, state: StorySceneState
     paint: {
       'circle-radius': metersToPixels(1.7),
       'circle-color': rgbString(state.diskHalo),
-      'circle-opacity': 0.22,
+      'circle-opacity': ['*', 0.22, ['coalesce', ['get', 'fade'], 1]],
       'circle-blur': 1,
       'circle-pitch-alignment': 'map',
       'circle-pitch-scale': 'map',
@@ -293,7 +394,7 @@ function addJunctionLayers(map: mapboxgl.Map, id: string, state: StorySceneState
     paint: {
       'circle-radius': metersToPixels(1),
       'circle-color': rgbString(state.diskCore),
-      'circle-opacity': 0.36,
+      'circle-opacity': ['*', 0.36, ['coalesce', ['get', 'fade'], 1]],
       'circle-blur': 0.55,
       'circle-pitch-alignment': 'map',
       'circle-pitch-scale': 'map',
@@ -322,7 +423,14 @@ function mountStoryLayers(map: mapboxgl.Map, frame: StoryFrame) {
   if (map.getSource('story-columns')) return
 
   const empty = featureCollection([])
-  for (const id of ['story-area', 'story-junctions', 'story-region-junctions', 'story-columns', 'story-region-columns']) {
+  for (const id of [
+    'story-area',
+    'story-annotation',
+    'story-junctions',
+    'story-region-junctions',
+    'story-columns',
+    'story-region-columns',
+  ]) {
     map.addSource(id, { type: 'geojson', data: empty })
   }
 
@@ -338,13 +446,101 @@ function mountStoryLayers(map: mapboxgl.Map, frame: StoryFrame) {
     source: 'story-area',
     paint: { 'line-color': '#70aeff', 'line-width': 1.5, 'line-dasharray': [2, 1.5], 'line-opacity': 0.9 },
   })
+  map.addLayer({
+    id: 'story-annotation-fill',
+    type: 'fill',
+    source: 'story-annotation',
+    paint: { 'fill-opacity': 0, 'fill-opacity-transition': { duration: 0 } },
+  })
+  map.addLayer({
+    id: 'story-annotation-glow',
+    type: 'line',
+    source: 'story-annotation',
+    layout: { 'line-join': 'round' },
+    paint: { 'line-width': 7, 'line-blur': 5, 'line-opacity': 0, 'line-opacity-transition': { duration: 0 } },
+  })
+  map.addLayer({
+    id: 'story-annotation-line',
+    type: 'line',
+    source: 'story-annotation',
+    layout: { 'line-join': 'round' },
+    paint: { 'line-width': 1.6, 'line-opacity': 0, 'line-opacity-transition': { duration: 0 } },
+  })
   addJunctionLayers(map, 'story-junctions', frame.state)
   addJunctionLayers(map, 'story-region-junctions', frame.state)
   addColumnLayer(map, 'story-columns')
   addColumnLayer(map, 'story-region-columns')
 
   setSourceData(map, 'story-area', areaData(frame.area))
+  setSourceData(map, 'story-annotation', annotationAreaData(frame.annotation))
+  drawAnnotationArea(map, frame.annotation)
   drawStory(map, frame)
+}
+
+function element(tag: string, className: string, text?: string) {
+  const node = document.createElement(tag)
+  node.className = className
+  if (text !== undefined) node.textContent = text
+  return node
+}
+
+function schoolPin(school: AnnotatedSchool, color: string) {
+  const pin = element('div', styles.annotationPin)
+  pin.style.setProperty('--annotation-color', color)
+  pin.style.setProperty('--annotation-delay', `${380 + school.rank * 70}ms`)
+  pin.dataset.rank = String(school.rank)
+  const badge = element('span', styles.annotationBadge, String(school.rank))
+  const stem = element('span', styles.annotationStem)
+  const tip = element('div', styles.annotationTip)
+  const head = element('div', styles.annotationTipHead)
+  head.append(element('span', styles.annotationTipRank, `#${school.rank}`), element('b', '', school.name))
+  const meta = element('p', styles.annotationTipMeta, `${school.district} · ${school.type} · ${school.level}`)
+  const stats = element('dl', styles.annotationTipStats)
+  for (const [label, value] of [
+    ['Peak traffic (500 m)', `${school.peak.toLocaleString('en-US')} veh/h`],
+    ['vs previous 2 months', `+${school.change}%`],
+    ['Students', school.students.toLocaleString('en-US')],
+  ]) {
+    const row = element('div', '')
+    row.append(element('dt', '', label), element('dd', '', value))
+    stats.append(row)
+  }
+  tip.append(head, meta, stats, element('p', styles.annotationTipFoot, 'Last 2 months · AI annotation'))
+  pin.append(tip, badge, stem)
+  return pin
+}
+
+function areaLabel(text: string, color: string) {
+  const marker = element('div', styles.annotationAreaMarker)
+  marker.style.setProperty('--annotation-color', color)
+  marker.append(element('span', styles.annotationArea, text))
+  return marker
+}
+
+function addAnnotationMarkers(map: mapboxgl.Map, value: StoryMapAnnotation) {
+  const pins = new Map<number, mapboxgl.Marker>()
+  for (const school of value.schools) {
+    const marker = new mapboxgl.Marker({ element: schoolPin(school, value.color), anchor: 'bottom' })
+      .setLngLat(school.coordinates)
+      .addTo(map)
+    pins.set(school.column, marker)
+  }
+  const labels = value.areas.map((area) =>
+    new mapboxgl.Marker({ element: areaLabel(area.label, value.color), anchor: 'bottom', offset: [0, -6] })
+      .setLngLat(area.anchor)
+      .addTo(map),
+  )
+  return { pins, labels }
+}
+
+function removeAnnotationMarkers(annotation: FrameAnnotation) {
+  for (const marker of [...annotation.pins.values(), ...annotation.labels]) {
+    const node = marker.getElement()
+    node.classList.add(styles.annotationLeaving)
+    window.setTimeout(() => marker.remove(), 260)
+  }
+  annotation.pins.clear()
+  annotation.labels = []
 }
 
 function setLayerVisibility(map: mapboxgl.Map, id: string, visible: boolean) {
@@ -437,6 +633,7 @@ export function StoryMap({
   region = null,
   areaEffect = null,
   cameraRequest = null,
+  annotation = null,
   onHandle,
 }: StoryMapProps) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -457,11 +654,13 @@ export function StoryMap({
     regionGeometry: [],
     phase: framePhase,
     area: null,
+    annotation: null,
   })
   const appliedRegionRef = useRef<StoryMapRegion | null>(null)
   const appliedEffectRef = useRef<StoryAreaEffect | null>(null)
   const tweenRef = useRef<number | null>(null)
   const scaleTweenRef = useRef<number | null>(null)
+  const annotationTweenRef = useRef<number | null>(null)
   const mountOptionsRef = useRef({ interactive, cameraPadding, zoomOffset, fitParentHeight })
   const flyToSceneRef = useRef(flyToScene)
 
@@ -502,6 +701,7 @@ export function StoryMap({
     })
     map.setPadding(mountOptions.cameraPadding)
     mapRef.current = map
+    const frame = frameRef.current
 
     const observer = new ResizeObserver(() => map.resize())
     observer.observe(el)
@@ -542,6 +742,8 @@ export function StoryMap({
       parentObserver?.disconnect()
       if (tweenRef.current !== null) cancelAnimationFrame(tweenRef.current)
       if (scaleTweenRef.current !== null) cancelAnimationFrame(scaleTweenRef.current)
+      if (annotationTweenRef.current !== null) cancelAnimationFrame(annotationTweenRef.current)
+      frame.annotation = null
       map.remove()
       mapRef.current = null
       handleRef.current = null
@@ -703,6 +905,106 @@ export function StoryMap({
     }
     scaleTweenRef.current = requestAnimationFrame(step)
   }, [region, areaEffect, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const frame = frameRef.current
+    if ((frame.annotation?.value ?? null) === annotation) return
+
+    if (annotationTweenRef.current !== null) cancelAnimationFrame(annotationTweenRef.current)
+    const leaving = frame.annotation
+    if (leaving) removeAnnotationMarkers(leaving)
+    if (annotation) {
+      const polygons = annotation.areas.map((area) => area.polygon)
+      const regionCamera = annotation.layer === 'region' ? region?.camera : undefined
+      const junctions = annotation.layer === 'region' ? (region?.junctions ?? []) : DEMO_JUNCTIONS
+      frame.annotation = {
+        value: annotation,
+        rgb: hexToRgb(annotation.color),
+        ranks: new Map(annotation.schools.map((school) => [school.column, school.rank])),
+        junctionInside: junctions.map(([lng, lat]) => polygons.some((polygon) => pointInPolygon([lng, lat], polygon))),
+        mix: 0,
+        ...addAnnotationMarkers(map, annotation),
+      }
+      setSourceData(map, 'story-annotation', annotationAreaData(frame.annotation))
+      const bounds = new mapboxgl.LngLatBounds()
+      for (const polygon of polygons) for (const point of polygon) bounds.extend(point)
+      // Let the agent rail finish resizing the map before framing the areas.
+      window.setTimeout(() => {
+        if (frameRef.current.annotation?.value !== annotation || mapRef.current !== map) return
+        const pitch = regionCamera?.pitch ?? map.getPitch()
+        const bearing = regionCamera?.bearing ?? map.getBearing()
+        const fit = map.cameraForBounds(bounds, { padding: ANNOTATION_FIT_PADDING, pitch, bearing })
+        if (!fit?.center || fit.zoom === undefined) return
+        map.flyTo({
+          center: fit.center,
+          zoom: annotation.location ? fit.zoom : fit.zoom - ANNOTATION_ZOOM_OUT,
+          pitch,
+          bearing,
+          duration: CAMERA_DURATION_MS,
+          curve: 1.2,
+          essential: true,
+        })
+      }, REGION_FLY_DELAY_MS)
+    } else if (leaving && !appliedRegionRef.current) {
+      const { camera } = storySceneAt(sceneIndexRef.current)
+      map.flyTo({
+        ...camera,
+        zoom: camera.zoom + mountOptionsRef.current.zoomOffset,
+        duration: CAMERA_DURATION_MS,
+        curve: 1.2,
+        essential: true,
+      })
+    }
+
+    const target = frame.annotation && frame.annotation.value === annotation ? frame.annotation : null
+    const fading = target ? null : leaving
+    const from = target ? 0 : (fading?.mix ?? 0)
+    const duration = target ? ANNOTATION_IN_MS : ANNOTATION_OUT_MS
+    const start = performance.now()
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / duration)
+      const current = target ?? fading
+      if (current) current.mix = target ? easeInOutCubic(t) : from * (1 - easeInOutCubic(t))
+      if (t >= 1 && !target) frame.annotation = null
+      drawAnnotationArea(map, frame.annotation)
+      drawStory(map, frame)
+      annotationTweenRef.current = t < 1 ? requestAnimationFrame(step) : null
+    }
+    annotationTweenRef.current = requestAnimationFrame(step)
+  }, [annotation, ready, region])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || !annotation) return
+    let hovered: HTMLElement | null = null
+    const setHovered = (next: HTMLElement | null) => {
+      if (hovered === next) return
+      hovered?.classList.remove(styles.annotationPinActive)
+      next?.classList.add(styles.annotationPinActive)
+      hovered = next
+    }
+    const onMove = (event: mapboxgl.MapLayerMouseEvent) => {
+      const rank = event.features?.[0]?.properties?.rank
+      const column = typeof rank === 'number' ? annotation.schools.find((school) => school.rank === rank)?.column : undefined
+      const pin = column === undefined ? null : frameRef.current.annotation?.pins.get(column)?.getElement() ?? null
+      map.getCanvas().style.cursor = pin ? 'pointer' : ''
+      setHovered(pin)
+    }
+    const onLeave = () => {
+      map.getCanvas().style.cursor = ''
+      setHovered(null)
+    }
+    const layer = annotation.layer === 'region' ? 'story-region-columns' : 'story-columns'
+    map.on('mousemove', layer, onMove)
+    map.on('mouseleave', layer, onLeave)
+    return () => {
+      map.off('mousemove', layer, onMove)
+      map.off('mouseleave', layer, onLeave)
+      onLeave()
+    }
+  }, [annotation, ready])
 
   useEffect(() => {
     const map = mapRef.current

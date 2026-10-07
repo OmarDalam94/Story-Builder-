@@ -17,6 +17,17 @@ import {
   type AreaFilterStats,
   type StoryAiSnapshot,
 } from './storyAiScenarios'
+import { EMISSIONS_LINE, GROUNDWATER_LINE, warpPath } from './StoryCharts'
+import {
+  CHART_PERIOD_LABEL,
+  PERIOD_LOAD_X,
+  PERIOD_VOLUME_LEGEND,
+  PERIOD_VOLUME_X,
+  periodScene,
+  type ChatComponent,
+} from './storyChartPeriod'
+import type { StoryScene } from './storyDemoScenes'
+import { TOP_SCHOOLS_COUNT, TOP_SCHOOLS_PERIOD, type StoryMapAnnotation } from './storyAnnotations'
 
 function timeline(steps: ThinkingStep[]): TimelineStep[] {
   return steps
@@ -183,6 +194,245 @@ export function mussafahReply(labels: string[]): AssistantReplyPayload {
         type: 'text',
         content:
           'Prioritize signal retiming on the E30 approach and the M-10 / M-12 junctions for the 06:00–09:00 window; together they account for most of the overloaded intersections in the area.',
+      },
+    ],
+  }
+}
+
+/** Approach 2: the attached chart cards re-scoped to 2024–2025; the map is left as is. */
+export function periodReply(components: ChatComponent[], scene: StoryScene): AssistantReplyPayload {
+  const labels = components.map((item) => item.label)
+  const now = scene.insight
+  const past = periodScene(scene).insight
+  const steps: ThinkingStep[] = [
+    {
+      id: 'period-intent',
+      kind: 'reasoning',
+      title: `The user attached ${list(labels)} and wants the data from 2024 to 2025, without changing the map…`,
+    },
+    {
+      id: 'period-query',
+      kind: 'search',
+      title: 'Querying junction counts and load history, Jan 2024 – Dec 2025…',
+    },
+    {
+      id: 'period-rebuild',
+      kind: 'search',
+      title: `Re-plotting ${list(labels)} for ${CHART_PERIOD_LABEL}…`,
+    },
+    { id: 'period-done', kind: 'done', title: 'Charts updated' },
+  ]
+
+  const createdComponents: CreatedComponent[] = []
+  const blocks: AgentResponseBlock[] = [
+    {
+      type: 'text',
+      content: `I re-plotted ${list(labels)} for ${CHART_PERIOD_LABEL}. The ${
+        components.length === 1 ? 'chart' : 'charts'
+      } in the story panel now show the same period; the map and its filters are unchanged.`,
+    },
+  ]
+  const add = (heading: string, text: string, component: CreatedComponent) => {
+    createdComponents.push(component)
+    blocks.push({ type: 'heading', content: heading }, { type: 'text', content: text }, visual(component))
+  }
+
+  for (const { id, label } of components) {
+    if (id === 'emissions') {
+      add(
+        'Traffic volume',
+        'Volume climbed through 2024 and peaked in Q3 2025, 11% above the 2024 pattern. The gap opened in spring and held through the summer freight season.',
+        chartComponent(
+          'story-period-volume',
+          {
+            type: 'trend',
+            title: label,
+            value: '9.4k',
+            unit: 'veh/h peak',
+            legend: PERIOD_VOLUME_LEGEND,
+            yLabels: past.emissionsLabels,
+            xLabels: PERIOD_VOLUME_X,
+            fromLine: warpPath(EMISSIONS_LINE, now.emissionsWarp),
+            line: warpPath(EMISSIONS_LINE, past.emissionsWarp),
+            color: '#7dcea0',
+            dashed: true,
+          },
+          '2025 ran above the 2024 pattern from March onward.',
+        ),
+      )
+    } else if (id === 'groundwater') {
+      add(
+        'Junction load',
+        `Average junction load ran at ${past.groundwaterValue}% across ${CHART_PERIOD_LABEL}, ${
+          past.groundwaterValue - now.groundwaterValue
+        } points above today's ${now.groundwaterValue}%. Load eased after the Q3 2025 signal retiming.`,
+        chartComponent(
+          'story-period-load',
+          {
+            type: 'trend',
+            title: label,
+            value: `${past.groundwaterValue}`,
+            unit: '% average',
+            yLabels: ['100', '50', '0'],
+            xLabels: PERIOD_LOAD_X,
+            fromLine: warpPath(GROUNDWATER_LINE, now.groundwaterWarp),
+            line: warpPath(GROUNDWATER_LINE, past.groundwaterWarp),
+            color: '#ee7b93',
+          },
+          'Quarterly average load, Q1 2024 – Q4 2025.',
+        ),
+      )
+    } else if (id === 'biodiversity') {
+      add(
+        'Junction status',
+        `${past.marine} junctions were congested in ${CHART_PERIOD_LABEL}, ${past.marine - now.marine} more than today. Most of them sit on the freight corridors that were widened in late 2025.`,
+        chartComponent(
+          'story-period-status',
+          {
+            type: 'status',
+            title: label,
+            terrestrial: past.terrestrial,
+            marine: past.marine,
+            from: { terrestrial: now.terrestrial, marine: now.marine },
+          },
+          `Junction status, current period vs ${CHART_PERIOD_LABEL}.`,
+        ),
+      )
+    } else {
+      add(
+        'Live junction data',
+        `${past.online} of ${past.sites} junctions reported over ${CHART_PERIOD_LABEL} (${past.uptime}% coverage). Coverage has improved since the sensor upgrade in 2025.`,
+        chartComponent(
+          'story-period-sites',
+          {
+            type: 'sites',
+            title: label,
+            online: past.online,
+            sites: past.sites,
+            uptime: past.uptime,
+            offlineBars: past.offlineBars,
+            from: { online: now.online, uptime: now.uptime, offlineBars: now.offlineBars },
+          },
+          `Reporting junctions, current period vs ${CHART_PERIOD_LABEL}.`,
+        ),
+      )
+    }
+  }
+
+  return {
+    headline: `Updated ${list(labels)} to ${CHART_PERIOD_LABEL}.`,
+    headlineDetail: 'Only the selected charts changed; the map is unchanged.',
+    thinkingSteps: steps,
+    timeline: timeline(steps),
+    createdComponents,
+    blocks,
+  }
+}
+
+/** Approach 2: the top 10 schools annotated on the map (highlighted columns, areas, tooltips). */
+export function topSchoolsReply(annotation: StoryMapAnnotation): AssistantReplyPayload {
+  const { schools, areas, location } = annotation
+  const count = schools.length
+  const scope = location ? ` in ${location}` : ''
+  const steps: ThinkingStep[] = [
+    {
+      id: 'schools-intent',
+      kind: 'reasoning',
+      title: `The user wants the ${TOP_SCHOOLS_COUNT} schools with the most traffic around them${scope} over ${TOP_SCHOOLS_PERIOD}, annotated on the map…`,
+    },
+    ...(location
+      ? [
+          {
+            id: 'schools-location',
+            kind: 'reasoning' as const,
+            title: `Limiting the columns to the ${location} outline from the location context…`,
+          },
+        ]
+      : []),
+    {
+      id: 'schools-query',
+      kind: 'search',
+      title: `Ranking schools${scope} by peak-hour traffic within 500 m, last 2 months…`,
+    },
+    {
+      id: 'schools-areas',
+      kind: 'reasoning',
+      title: location
+        ? `Outlining ${location} and pinning the ${count} columns inside it…`
+        : `Grouping the ${TOP_SCHOOLS_COUNT} columns by distance and outlining the areas they cover…`,
+    },
+    { id: 'schools-done', kind: 'done', title: 'Map annotated' },
+  ]
+
+  if (count === 0) {
+    return {
+      headline: `No schools found${scope}.`,
+      headlineDetail: 'Outlined the area on the map; it has no monitored columns.',
+      thinkingSteps: steps,
+      timeline: timeline(steps),
+      blocks: [
+        {
+          type: 'text',
+          content: `I outlined ${location ?? 'the area'} on the map, but none of the monitored school columns fall inside it. Try a larger area, or pick a district from the location search.`,
+        },
+      ],
+    }
+  }
+
+  const top = schools[0]
+  const ranking = chartComponent(
+    'story-top-schools',
+    {
+      type: 'bars',
+      title: `Top ${count} schools${scope} by nearby traffic`,
+      value: top.peak.toLocaleString('en-US'),
+      unit: 'veh/h peak at #1',
+      color: annotation.color,
+      rows: schools.map((school) => ({
+        label: `${school.rank}. ${school.name}`,
+        value: (school.peak / top.peak) * 100,
+        display: school.peak.toLocaleString('en-US'),
+      })),
+    },
+    `Peak-hour vehicles within 500 m of each school${scope}, last 2 months.`,
+  )
+  const areaText = areas
+    .map((area) => `${area.label} (${area.junctions} monitored ${area.junctions === 1 ? 'junction' : 'junctions'})`)
+    .join('; ')
+  const average = Math.round(schools.reduce((sum, school) => sum + school.change, 0) / count)
+  const rising = [...schools].sort((a, b) => b.change - a.change)[0]
+  const area = areas[0]
+
+  return {
+    headline: `Annotated the top ${count} schools${scope} on the map.`,
+    headlineDetail: location
+      ? `Outlined ${location}, highlighted the ${count} columns inside it and added a tooltip to each school.`
+      : `Highlighted their columns, outlined ${areas.length} ${areas.length === 1 ? 'area' : 'areas'} and added a tooltip to each school.`,
+    thinkingSteps: steps,
+    timeline: timeline(steps),
+    createdComponents: [ranking],
+    blocks: [
+      {
+        type: 'text',
+        content: `I ranked schools${scope} by peak-hour traffic within 500 m over ${TOP_SCHOOLS_PERIOD} and annotated the top ${count} on the map. Their columns are now highlighted, the rest of the map is dimmed, and each column has a numbered pin — hover one to see the school's details.`,
+      },
+      { type: 'heading', content: 'Ranking' },
+      {
+        type: 'text',
+        content: `${top.name} in ${top.district} leads with ${top.peak.toLocaleString('en-US')} vehicles an hour at peak. Traffic around the ${count} schools rose ${average}% on average compared with the 2 months before.`,
+      },
+      visual(ranking),
+      { type: 'heading', content: location ? 'The area' : 'Where they cluster' },
+      {
+        type: 'text',
+        content: location
+          ? `${location} is outlined on the map: ${area.junctions} monitored ${area.junctions === 1 ? 'junction' : 'junctions'} sit inside it, and the disks outside it are faded.`
+          : `The ${count} schools fall into ${areas.length} ${areas.length === 1 ? 'area' : 'areas'}, outlined on the map: ${areaText}.`,
+      },
+      { type: 'heading', content: 'Insights' },
+      {
+        type: 'text',
+        content: `${rising.name} saw the sharpest rise (+${rising.change}%). Staggered drop-off times and signal priority at the junctions inside the ${area.district} area would relieve the most schools at once.`,
       },
     ],
   }

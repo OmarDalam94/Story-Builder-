@@ -21,6 +21,7 @@ import {
   Buildings,
   CalendarBlank,
   CaretDown,
+  ChatCircleText,
   Check,
   Copy,
   DotsSix,
@@ -112,7 +113,16 @@ import {
   type StoryMapRegion,
 } from './storyAiScenarios'
 import { areaFilterReply, mussafahReply, withMapState } from './storySelectionReplies'
+import {
+  CHART_PERIOD_LABEL,
+  PERIOD_LOAD_X,
+  PERIOD_VOLUME_LEGEND,
+  PERIOD_VOLUME_X,
+  periodScene,
+  type ChatComponent,
+} from './storyChartPeriod'
 import { DEMO_COLUMNS, DEMO_JUNCTIONS } from './storyDemoMapData'
+import { locationAnnotation, topSchoolsAnnotation } from './storyAnnotations'
 import { StoryComparisonModal } from './StoryComparisonModal'
 import { comparisonOptions, comparisonPhase, type ComparisonMapOption } from './storyComparison'
 import { createCameraLink } from './storyCameraLink'
@@ -158,15 +168,23 @@ export type StoryViewProps = {
    * or back to its original slides when `snapshot` is null.
    */
   aiState?: { token: number; snapshot: StoryAiSnapshot | null }
-  /** Map screenshot for a reply's map-state card, taken after the prompt's animation settles. */
+  /** Map screenshot for a reply's map-state card, taken after the prompt's animation settles; without it replies get no card. */
   onMapCapture?: (stateId: string, capture: StoryMapCapture) => void
   /** Status bar for the AI-changed story; hidden while select mode shows its own banner. */
   aiModeBar?: ReactNode
+  /** Top-right of the story header (e.g. the AI approach switcher). */
+  headerEnd?: ReactNode
+  /** Shows "Add to chat" beside a hovered chart card; `sourceRect` is the clicked button. */
+  onAddToChat?: (component: ChatComponent, sourceRect: DOMRect) => void
+  /** Reports the slide on screen, so prompts sent from outside the story can use its data. */
+  onSlideIndexChange?: (index: number) => void
 }
 
 /** How long a prompt's camera flight and column animation take before the map is captured. */
 const REGION_CAPTURE_DELAY_MS = 4900
 const AREA_CAPTURE_DELAY_MS = 2300
+/** Grace period for the pointer to travel from the card to its "Add to chat" button. */
+const ADD_TO_CHAT_HIDE_MS = 160
 
 export type { StoryAiSnapshot }
 
@@ -343,6 +361,9 @@ export function StoryView({
   aiState,
   onMapCapture,
   aiModeBar,
+  headerEnd,
+  onAddToChat,
+  onSlideIndexChange,
 }: StoryViewProps) {
   const story = useMemo(() => getLandingStory(storyId), [storyId])
   const [storyTitle, setStoryTitle] = useState(story.storyTitle)
@@ -423,12 +444,24 @@ export function StoryView({
   const [aiFilterLabels, setAiFilterLabels] = useState<Record<string, string>>({})
   const [restoredCards, setRestoredCards] = useState<{ ids: InsightCardId[]; key: number } | null>(null)
   const [cameraRequest, setCameraRequest] = useState<{ camera: NonNullable<StoryAiSnapshot['camera']> } | null>(null)
+  const [periodCards, setPeriodCards] = useState<ChartCardId[]>([])
+  const [annotationRequest, setAnnotationRequest] = useState<StoryAiSnapshot['annotation'] | null>(null)
+  const [chatHover, setChatHover] = useState<{ id: ChartCardId; top: number; left: number } | null>(null)
+  const chatHoverTimerRef = useRef<number | null>(null)
   // Starts below any token so a story opened with a saved snapshot replays its changes on mount.
   const [appliedAiToken, setAppliedAiToken] = useState(-1)
   if (aiState && aiState.token !== appliedAiToken) {
     setAppliedAiToken(aiState.token)
     const { snapshot } = aiState
-    if (snapshot || aiFocus || aiRegion || areaEffect || filtersBeforeAi) {
+    if (
+      snapshot ||
+      aiFocus ||
+      aiRegion ||
+      areaEffect ||
+      filtersBeforeAi ||
+      periodCards.length > 0 ||
+      annotationRequest
+    ) {
       const key = Date.now()
       const base = filtersBeforeAi ?? filtersBySlide
       const nextFilters = snapshot ? relabelFilterMap(base, slides, story.filters, snapshot.filterLabels) : base
@@ -444,8 +477,13 @@ export function StoryView({
       setFiltersBeforeAi(snapshot ? base : null)
       setAiFilterLabels(snapshot?.filterLabels ?? {})
       setCameraRequest(snapshot?.camera ? { camera: snapshot.camera } : null)
+      setPeriodCards(snapshot?.periodCards ?? [])
+      setAnnotationRequest(snapshot?.annotation ?? null)
       if (changed.length > 0) setFlashedFilters({ ids: changed, key })
-      setRegeneratingSlideId(slides[slideIndex]?.id ?? null)
+      const chartsOnly =
+        changed.length === 0 &&
+        !(snapshot?.cards || snapshot?.region || snapshot?.areaEffect || aiFocus || aiRegion || areaEffect)
+      if (!chartsOnly) setRegeneratingSlideId(slides[slideIndex]?.id ?? null)
     }
   }
   const mapHandleRef = useRef<StoryMapHandle | null>(null)
@@ -495,6 +533,29 @@ export function StoryView({
     () => warpPath(GROUNDWATER_LINE, insight.groundwaterWarp),
     [insight.groundwaterWarp],
   )
+  const hasPeriodCards = periodCards.length > 0
+  const pastScene = useMemo(() => (hasPeriodCards ? periodScene(scene) : null), [hasPeriodCards, scene])
+  const pastInsight = pastScene?.insight ?? insight
+  const pastEmissionsLine = useMemo(
+    () => warpPath(EMISSIONS_LINE, pastInsight.emissionsWarp),
+    [pastInsight.emissionsWarp],
+  )
+  const pastGroundwaterLine = useMemo(
+    () => warpPath(GROUNDWATER_LINE, pastInsight.groundwaterWarp),
+    [pastInsight.groundwaterWarp],
+  )
+  const inPeriod = (id: ChartCardId) => pastScene !== null && periodCards.includes(id)
+  // Feature-anchored to one slide's data: other slides show different values in those columns.
+  const mapAnnotation = useMemo(() => {
+    if (!annotationRequest) return null
+    const { slide: from, location } = annotationRequest
+    const annotation = location ? locationAnnotation(from, location) : topSchoolsAnnotation(from)
+    if (annotation.layer === 'region') return aiRegion ? annotation : null
+    return from === activeSlideIndex && !aiRegion ? annotation : null
+  }, [activeSlideIndex, aiRegion, annotationRequest])
+  useEffect(() => {
+    onSlideIndexChange?.(activeSlideIndex)
+  }, [activeSlideIndex, onSlideIndexChange])
   const regionInsight = useMemo(() => (aiRegion ? mussafahInsight(framePhase) : null), [aiRegion, framePhase])
   const legendPlace = aiRegion ? MUSSAFAH_LABEL : 'Abu Dhabi'
   const mainLegend = aiRegion ? { ...scene.legend, junctionCount: aiRegion.junctions.length } : scene.legend
@@ -537,7 +598,7 @@ export function StoryView({
   const chartKpi = (cardId: ChartCardId) => {
     const config = cardPrefs[cardId]?.kpi
     if (!config) return undefined
-    const kpi = resolveKpi(config, scene)
+    const kpi = resolveKpi(config, inPeriod(cardId) && pastScene ? pastScene : scene)
     return kpi ? <KpiLine {...kpi} /> : null
   }
 
@@ -727,6 +788,28 @@ export function StoryView({
     }
   }, [openCardMenu])
 
+  const canAddToChat = Boolean(onAddToChat) && storyMode === 'view' && !selectMode
+  const showAddToChat = (id: ChartCardId, card: HTMLElement) => {
+    if (chatHoverTimerRef.current !== null) window.clearTimeout(chatHoverTimerRef.current)
+    chatHoverTimerRef.current = null
+    const root = rootRef.current?.getBoundingClientRect()
+    if (!root) return
+    const rect = card.getBoundingClientRect()
+    setChatHover({ id, top: rect.top - root.top + 10, left: rect.right - root.left + 8 })
+  }
+  const hideAddToChat = () => {
+    if (chatHoverTimerRef.current !== null) window.clearTimeout(chatHoverTimerRef.current)
+    chatHoverTimerRef.current = window.setTimeout(() => {
+      chatHoverTimerRef.current = null
+      setChatHover(null)
+    }, ADD_TO_CHAT_HIDE_MS)
+  }
+  const addHoveredToChat = (button: HTMLElement) => {
+    if (!chatHover || !onAddToChat) return
+    onAddToChat({ id: chatHover.id, label: INSIGHT_CARD_LABELS[chatHover.id] }, button.getBoundingClientRect())
+    setChatHover(null)
+  }
+
   const insightCard = (
     id: InsightCardId,
     className: string,
@@ -745,6 +828,8 @@ export function StoryView({
       : restored
         ? restoredCards.ids.indexOf(id) * 110 + 260
         : null
+    const period = isChartCardId(id) && inPeriod(id)
+    const chattable = canAddToChat && isChartCardId(id)
     return (
       <section
         key={focused ? `${id}-${aiFocus.key}` : restored ? `${id}-restored-${restoredCards.key}` : id}
@@ -754,6 +839,8 @@ export function StoryView({
           className,
           styles.insightCard,
           focused || restored ? styles.insightCardFocusIn : '',
+          period ? styles.insightCardPeriod : '',
+          chatHover?.id === id ? styles.insightCardChatHover : '',
           prefs.hidden && !focused ? styles.insightCardHidden : '',
           prefs.border ? styles.insightCardBorder : '',
           prefs.outline ? styles.insightCardOutline : '',
@@ -761,8 +848,17 @@ export function StoryView({
           .filter(Boolean)
           .join(' ')}
         style={focusDelay === null ? style : ({ ...style, '--focus-delay': `${focusDelay}ms` } as CSSProperties)}
+        onMouseEnter={chattable ? (event) => showAddToChat(id, event.currentTarget) : undefined}
+        onMouseLeave={chattable ? hideAddToChat : undefined}
       >
         {children}
+        {period ? (
+          <span
+            className={`${styles.periodBadge}${storyMode === 'edit' ? ` ${styles.periodBadgeShifted}` : ''}`}
+          >
+            {CHART_PERIOD_LABEL}
+          </span>
+        ) : null}
         {storyMode === 'edit' ? (
           <button
             type="button"
@@ -1402,6 +1498,14 @@ export function StoryView({
             legend={['2024', '2023']}
             kpi={chartKpi('emissions')}
           />
+        ) : inPeriod('emissions') ? (
+          <EmissionsChart
+            yLabels={pastInsight.emissionsLabels}
+            line={pastEmissionsLine}
+            xLabels={PERIOD_VOLUME_X}
+            legend={PERIOD_VOLUME_LEGEND}
+            kpi={chartKpi('emissions')}
+          />
         ) : (
           <EmissionsChart
             yLabels={insight.emissionsLabels}
@@ -1414,20 +1518,29 @@ export function StoryView({
         'groundwater',
         styles.visualCard,
         'Average junction load',
-        <GroundwaterChart
-          value={regionInsight?.load ?? insight.groundwaterValue}
-          line={regionInsight?.loadLine ?? groundwaterLine}
-          xLabels={regionInsight ? MUSSAFAH_LOAD_X : undefined}
-          kpi={chartKpi('groundwater')}
-        />,
+        regionInsight || !inPeriod('groundwater') ? (
+          <GroundwaterChart
+            value={regionInsight?.load ?? insight.groundwaterValue}
+            line={regionInsight?.loadLine ?? groundwaterLine}
+            xLabels={regionInsight ? MUSSAFAH_LOAD_X : undefined}
+            kpi={chartKpi('groundwater')}
+          />
+        ) : (
+          <GroundwaterChart
+            value={pastInsight.groundwaterValue}
+            line={pastGroundwaterLine}
+            xLabels={PERIOD_LOAD_X}
+            kpi={chartKpi('groundwater')}
+          />
+        ),
       )}
       {insightCard(
         'biodiversity',
         styles.visualCard,
         'Junction traffic status',
         <BiodiversityChart
-          terrestrial={insight.terrestrial}
-          marine={insight.marine}
+          terrestrial={(inPeriod('biodiversity') ? pastInsight : insight).terrestrial}
+          marine={(inPeriod('biodiversity') ? pastInsight : insight).marine}
           kpi={chartKpi('biodiversity')}
         />,
       )}
@@ -1436,10 +1549,10 @@ export function StoryView({
         styles.visualCard,
         'Live junction data',
         <MonitoringSitesChart
-          online={insight.online}
+          online={(inPeriod('sites') ? pastInsight : insight).online}
           sites={insight.sites}
-          uptime={insight.uptime}
-          offlineBars={insight.offlineBars}
+          uptime={(inPeriod('sites') ? pastInsight : insight).uptime}
+          offlineBars={(inPeriod('sites') ? pastInsight : insight).offlineBars}
           kpi={chartKpi('sites')}
         />,
       )}
@@ -1523,7 +1636,7 @@ export function StoryView({
       }
       const reply = areaFilterReply(stats)
       const stateId = `map-state-${Date.now()}`
-      const mapChanged = stats.columns > 0 || stats.junctions > 0
+      const mapChanged = Boolean(onMapCapture) && (stats.columns > 0 || stats.junctions > 0)
       onSelectionPrompt?.({
         prompt,
         reply: mapChanged
@@ -1554,18 +1667,21 @@ export function StoryView({
         filterLabels: { ...aiFilterLabels, ...labels },
       }
       const stateId = `map-state-${Date.now()}`
+      const reply = mussafahReply(cards.map((id) => INSIGHT_CARD_LABELS[id]))
       onSelectionPrompt?.({
         prompt,
-        reply: withMapState(mussafahReply(cards.map((id) => INSIGHT_CARD_LABELS[id])), {
-          stateId,
-          snapshot,
-          title: `${MUSSAFAH_LABEL} · ${MUSSAFAH_PERIOD}`,
-          tag: MUSSAFAH_LABEL,
-          meta: `${MUSSAFAH_REGION.columns.length} columns / ${MUSSAFAH_REGION.junctions.length} junctions`,
-        }),
+        reply: onMapCapture
+          ? withMapState(reply, {
+              stateId,
+              snapshot,
+              title: `${MUSSAFAH_LABEL} · ${MUSSAFAH_PERIOD}`,
+              tag: MUSSAFAH_LABEL,
+              meta: `${MUSSAFAH_REGION.columns.length} columns / ${MUSSAFAH_REGION.junctions.length} junctions`,
+            })
+          : reply,
         snapshot,
       })
-      captureMapState(stateId, REGION_CAPTURE_DELAY_MS)
+      if (onMapCapture) captureMapState(stateId, REGION_CAPTURE_DELAY_MS)
     }
     onSelectModeChange?.(false)
   }
@@ -1597,6 +1713,7 @@ export function StoryView({
           region={aiRegion}
           cameraRequest={cameraRequest}
           areaEffect={areaEffect}
+          annotation={mapAnnotation}
           onHandle={onMapHandle}
         />
       </div>
@@ -1691,6 +1808,7 @@ export function StoryView({
                 </div>
               ) : null}
             </div>
+            {headerEnd ? <div className={styles.headerEnd}>{headerEnd}</div> : null}
           </div>
           {filterRow('upper', filters, (filterId) =>
             setFiltersBySlide((current) => ({
@@ -1772,6 +1890,7 @@ export function StoryView({
                     .filter(Boolean)
                     .join(' ')}
                   aria-label="Story insight"
+                  onScroll={chatHover ? () => setChatHover(null) : undefined}
                 >
                   {insightCards}
                   {storyMode === 'edit'
@@ -2439,6 +2558,23 @@ export function StoryView({
       ) : (
         aiModeBar
       )}
+      {canAddToChat && chatHover ? (
+        <button
+          key={chatHover.id}
+          type="button"
+          className={styles.addToChat}
+          style={{ top: chatHover.top, left: chatHover.left }}
+          onMouseEnter={() => {
+            if (chatHoverTimerRef.current !== null) window.clearTimeout(chatHoverTimerRef.current)
+            chatHoverTimerRef.current = null
+          }}
+          onMouseLeave={hideAddToChat}
+          onClick={(event) => addHoveredToChat(event.currentTarget)}
+        >
+          <ChatCircleText size={14} weight="regular" aria-hidden />
+          Add to chat
+        </button>
+      ) : null}
       <ShareModal
         open={shareOpen}
         title={`Share “${storyTitle}”`}

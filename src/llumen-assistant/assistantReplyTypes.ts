@@ -60,8 +60,28 @@ export type StoryReplyChartData =
       yLabels: string[]
       xLabels: string[]
       line: string
+      /** Line drawn first, then morphed into `line` once the chart is on screen. */
+      fromLine?: string
       color: string
       dashed?: boolean
+    }
+  | {
+      /** The story's Junction Traffic Status card; `from` values animate into the final ones. */
+      type: 'status'
+      title: string
+      terrestrial: number
+      marine: number
+      from?: { terrestrial: number; marine: number }
+    }
+  | {
+      /** The story's Live Junction Data card; `from` values animate into the final ones. */
+      type: 'sites'
+      title: string
+      online: number
+      sites: number
+      uptime: number
+      offlineBars: number[]
+      from?: { online: number; uptime: number; offlineBars: number[] }
     }
   | {
       type: 'bars'

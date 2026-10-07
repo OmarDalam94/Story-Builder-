@@ -5,6 +5,7 @@
 import { EMISSIONS_LINE, GROUNDWATER_LINE, warpPath } from './StoryCharts'
 import { COLUMN_MAX_HEIGHT_M, type StorySceneCamera } from './storyDemoScenes'
 import type { ChartCardId } from './storyKpi'
+import type { StoryLocation } from './storyAnnotations'
 
 export type StoryMapRegion = {
   id: string
@@ -29,6 +30,10 @@ export type StoryAiSnapshot = {
   region: boolean
   areaEffect: StoryAreaEffect | null
   filterLabels: Record<string, string>
+  /** Chart cards re-scoped to the 2024–2025 period; the map is untouched. */
+  periodCards?: ChartCardId[]
+  /** Top-10 schools annotated on the map, from the data of this slide (inside `location` when set). */
+  annotation?: { slide: number; location?: StoryLocation }
   /** Raw map camera to fly back to (zoom includes the map's zoom offset). */
   camera?: StorySceneCamera
 }
