@@ -7,6 +7,7 @@ import styles from './StoryEditPanel.module.css'
 
 const POPOVER_WIDTH = 232
 const POPOVER_HEIGHT = 140
+const PALETTE_SWATCHES = ['#70aeff', '#4fc3e8', '#7dcea0', '#ffc401', '#f7a13b', '#f17474', '#c084fc']
 
 export function ColorPicker({
   label,
@@ -16,7 +17,7 @@ export function ColorPicker({
 }: {
   label: string
   value: string
-  variant: 'swatch' | 'chip'
+  variant: 'swatch' | 'chip' | 'palette'
   onChange: (value: string) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -81,10 +82,36 @@ export function ColorPicker({
   const expanded = open || customOpen
 
   const swatchStyle = { '--swatch': value } as CSSProperties
+  const palette = PALETTE_SWATCHES.includes(value) ? PALETTE_SWATCHES : [...PALETTE_SWATCHES.slice(0, -1), value]
 
   return (
     <>
-      {variant === 'swatch' ? (
+      {variant === 'palette' ? (
+        <div className={styles.colorPalette} role="group" aria-label={label}>
+          {palette.map((swatch) => (
+            <button
+              key={swatch}
+              type="button"
+              className={`${styles.colorDot}${swatch === value ? ` ${styles.colorDotSelected}` : ''}`}
+              style={{ '--swatch': swatch } as CSSProperties}
+              aria-label={swatch.toUpperCase()}
+              aria-pressed={swatch === value}
+              onClick={() => onChange(swatch)}
+            />
+          ))}
+          <button
+            ref={triggerRef}
+            type="button"
+            className={`${styles.colorPaletteMore}${expanded ? ` ${styles.colorPaletteMoreOpen}` : ''}`}
+            aria-label="All colors"
+            aria-haspopup="dialog"
+            aria-expanded={expanded}
+            onClick={toggle}
+          >
+            <Plus size={12} weight="bold" aria-hidden />
+          </button>
+        </div>
+      ) : variant === 'swatch' ? (
         <div className={styles.colorSwatchRow}>
           <button
             ref={triggerRef}

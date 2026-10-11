@@ -1777,6 +1777,29 @@
   gap: 2px;
 }
 
+.mapStyleItem {
+  position: relative;
+}
+
+/* Sits on the card's title row; the name leaves room for it. */
+.mapStyleDimension {
+  position: absolute;
+  right: 12px;
+  bottom: 28px;
+  z-index: 3;
+  padding: 2px;
+}
+
+.mapStyleDimension .segmentedBtn {
+  height: 22px;
+  min-width: 32px;
+  padding: 0 var(--space-xs);
+}
+
+.mapStyleCard .mapStyleCardName {
+  padding-right: 84px;
+}
+
 .mapStyleCardName {
   color: #fff;
   font: var(--lc-font-small);
@@ -2294,6 +2317,50 @@
   box-shadow:
     inset 0 0 0 1px rgba(0, 0, 0, 0.12),
     0 0 0 3px var(--lc-bg-default);
+}
+
+.colorPalette {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.colorPalette .colorDot {
+  width: 24px;
+  height: 24px;
+}
+
+.colorPaletteMore {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+
+.colorPaletteMore:hover,
+.colorPaletteMoreOpen {
+  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.colorPaletteMore:focus-visible {
+  outline: 2px solid #70aeff;
+  outline-offset: 2px;
 }
 
 .colorHex {

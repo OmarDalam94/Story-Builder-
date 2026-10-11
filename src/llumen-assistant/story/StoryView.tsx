@@ -127,9 +127,21 @@ import { locationAnnotation, topSchoolsAnnotation } from './storyAnnotations'
 import { StoryComparisonModal } from './StoryComparisonModal'
 import { comparisonOptions, comparisonPhase, type ComparisonMapOption } from './storyComparison'
 import { createCameraLink } from './storyCameraLink'
-import type { StoryBackground } from './storyBackground'
+import type { BackgroundBasemap, StoryBackground } from './storyBackground'
 import { StoryBackgroundLayer } from './StoryBackgroundLayer'
 import { BackgroundSettings } from './StoryBackgroundSettings'
+import { StoryAnnotationModal } from './StoryAnnotationModal'
+import { StoryAnnotationsPanel, type AnnotationDrawingState } from './StoryAnnotationsPanel'
+import {
+  annotationValidity,
+  createAnnotation,
+  redrawAnnotation,
+  type AnnotationData,
+  type AnnotationStyle,
+  type DrawnShape,
+  type MapAnnotationItem,
+} from './storyMapAnnotations'
+import annotationStyles from './StoryAnnotations.module.css'
 import {
   COLUMN_MAX_HEIGHT_M,
   sceneAtPhase,
@@ -397,12 +409,19 @@ export function StoryView({
     junctions: true,
     distribution: true,
   })
-  const [mapStyle, setMapStyle] = useState({ id: 'aimsun-teal', url: STORY_MAP_STYLE })
-  const [background, setBackground] = useState<StoryBackground>({
+  const [mapStyle, setMapStyle] = useState<BackgroundBasemap>({
     kind: 'basemap',
     id: 'aimsun-teal',
     url: STORY_MAP_STYLE,
+    dimension: '3d',
   })
+  const [background, setBackground] = useState<StoryBackground>(mapStyle)
+  const [mapDataTab, setMapDataTab] = useState<'layers' | 'annotations'>('layers')
+  /** Annotations belong to the story's main map, so every slide shows them against its own data. */
+  const [mapAnnotations, setMapAnnotations] = useState<MapAnnotationItem[]>([])
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+  const [annotationDrawing, setAnnotationDrawing] = useState<AnnotationDrawingState | null>(null)
+  const [annotationPickerOpen, setAnnotationPickerOpen] = useState(false)
   const backgroundPanelTitle =
     background.kind === 'basemap'
       ? 'Map Data'
@@ -568,6 +587,59 @@ export function StoryView({
   const regionInsight = useMemo(() => (aiRegion ? mussafahInsight(framePhase) : null), [aiRegion, framePhase])
   const legendPlace = aiRegion ? MUSSAFAH_LABEL : 'Abu Dhabi'
   const mainLegend = aiRegion ? { ...scene.legend, junctionCount: aiRegion.junctions.length } : scene.legend
+  const annotationData = useMemo<AnnotationData>(() => {
+    const state = sceneState(baseScene)
+    return { slideIndex: activeSlideIndex, heights: state.heights, radii: state.radii, layers }
+  }, [activeSlideIndex, baseScene, layers])
+  const annotationDataLabel = `Slide ${activeSlideIndex + 1} · ${slide.title}`
+  const annotationStates = useMemo(
+    () => Object.fromEntries(mapAnnotations.map((item) => [item.id, annotationValidity(item, annotationData)])),
+    [annotationData, mapAnnotations],
+  )
+  const editingAnnotations = storyMode === 'edit'
+  const showAnnotationsTab = editingAnnotations || mapAnnotations.length > 0
+  const redrawingId = annotationDrawing?.redrawId ?? null
+  const mapAnnotationItems = useMemo(
+    () => (redrawingId ? mapAnnotations.filter((item) => item.id !== redrawingId) : mapAnnotations),
+    [mapAnnotations, redrawingId],
+  )
+  const startAnnotationDrawing = (tool: AnnotationDrawingState['tool'], redrawId: string | null = null) => {
+    setAnnotationPickerOpen(false)
+    setEditSection(null)
+    setMapDataTab('annotations')
+    setLegendOpen(true)
+    setSelectedAnnotationId(redrawId)
+    setAnnotationDrawing({ tool, points: 0, redrawId })
+  }
+  const onAnnotationDrawn = (shape: DrawnShape) => {
+    setAnnotationDrawing(null)
+    if (redrawingId) {
+      setMapAnnotations((items) =>
+        items.map((item) =>
+          item.id === redrawingId ? redrawAnnotation(item, shape, annotationData, annotationDataLabel) : item,
+        ),
+      )
+      setSelectedAnnotationId(redrawingId)
+      return
+    }
+    const item = createAnnotation(shape, mapAnnotations, annotationData, annotationDataLabel)
+    setMapAnnotations((items) => [...items, item])
+    setSelectedAnnotationId(item.id)
+  }
+  const updateAnnotation = (
+    id: string,
+    patch: Partial<Pick<MapAnnotationItem, 'name' | 'visible'>> & { style?: Partial<AnnotationStyle> },
+  ) =>
+    setMapAnnotations((items) =>
+      items.map((item) =>
+        item.id === id ? { ...item, ...patch, style: patch.style ? { ...item.style, ...patch.style } : item.style } : item,
+      ),
+    )
+  const leaveAnnotationEditing = () => {
+    setAnnotationDrawing(null)
+    setAnnotationPickerOpen(false)
+    setSelectedAnnotationId(null)
+  }
   const previewStory: LandingStory = {
     ...story,
     storyTitle,
@@ -797,7 +869,7 @@ export function StoryView({
     }
   }, [openCardMenu])
 
-  const canAddToChat = Boolean(onAddToChat) && storyMode === 'view' && !selectMode
+  const canAddToChat = Boolean(onAddToChat) && !selectMode
   const addCardToChat = (id: ChartCardId, button: HTMLElement) => {
     onAddToChat?.({ id, label: INSIGHT_CARD_LABELS[id] }, button.getBoundingClientRect())
     button.blur()
@@ -843,7 +915,11 @@ export function StoryView({
       >
         {children}
         {chattable ? (
-          <div className={styles.cardActions} role="toolbar" aria-label={`${title} actions`}>
+          <div
+            className={`${styles.cardActions}${storyMode === 'edit' ? ` ${styles.cardActionsEditing}` : ''}`}
+            role="toolbar"
+            aria-label={`${title} actions`}
+          >
             <button type="button" className={styles.cardAction} onClick={(event) => addCardToChat(id, event.currentTarget)}>
               <ChatCircleText size={14} aria-hidden />
               Add to chat
@@ -852,13 +928,15 @@ export function StoryView({
               <Sparkle size={14} aria-hidden />
               Generate
             </button>
-            <button
-              type="button"
-              className={`${styles.cardAction} ${styles.cardActionIcon}`}
-              aria-label={`More options for ${title}`}
-            >
-              <DotsThree size={16} weight="bold" aria-hidden />
-            </button>
+            {storyMode === 'edit' ? null : (
+              <button
+                type="button"
+                className={`${styles.cardAction} ${styles.cardActionIcon}`}
+                aria-label={`More options for ${title}`}
+              >
+                <DotsThree size={16} weight="bold" aria-hidden />
+              </button>
+            )}
           </div>
         ) : null}
         {storyMode === 'edit' ? (
@@ -1711,11 +1789,30 @@ export function StoryView({
           frameDuration={timelinePlaying ? frameStepMs : 500}
           frameLinear={timelinePlaying}
           styleUrl={mapStyle.url}
+          flat={mapStyle.dimension === '2d' || annotationDrawing !== null}
           cameraLink={viewLayout === 'comparison' && mapsLinked ? cameraLink : undefined}
           region={aiRegion}
           cameraRequest={cameraRequest}
           areaEffect={areaEffect}
           annotation={mapAnnotation}
+          annotations={{
+            items: mapAnnotationItems,
+            validity: annotationStates,
+            selectedId: editingAnnotations ? selectedAnnotationId : null,
+            onSelect: editingAnnotations
+              ? (id) => {
+                  setSelectedAnnotationId(id)
+                  if (!id) return
+                  setMapDataTab('annotations')
+                  setLegendOpen(true)
+                }
+              : undefined,
+            drawing: annotationDrawing?.tool ?? null,
+            onDrawn: onAnnotationDrawn,
+            onDrawProgress: (points) =>
+              setAnnotationDrawing((current) => (current && current.points !== points ? { ...current, points } : current)),
+            onDrawCancel: () => setAnnotationDrawing(null),
+          }}
           onHandle={onMapHandle}
         />
       </div>
@@ -1730,6 +1827,7 @@ export function StoryView({
             frameDuration={lowerAnimating ? lowerStepMs : 500}
             frameLinear={lowerAnimating}
             styleUrl={mapStyle.url}
+            flat={mapStyle.dimension === '2d'}
             controlsClassName={styles.comparisonControls}
             cameraLink={mapsLinked ? cameraLink : undefined}
             flyToScene={false}
@@ -2035,10 +2133,11 @@ export function StoryView({
               setEditSection(null)
             }}
             mapStyleId={mapStyle.id}
+            mapDimension={mapStyle.dimension}
             background={background}
             onBackgroundChange={(next) => {
               setBackground(next)
-              if (next.kind === 'basemap') setMapStyle({ id: next.id, url: next.url })
+              if (next.kind === 'basemap') setMapStyle(next)
             }}
             onAddCharts={(chartIds) => {
               chartIds.forEach((chartId) => {
@@ -2141,7 +2240,55 @@ export function StoryView({
                 onReplace={() => toggleSection('map')}
               />
             ) : legendOpen || storyMode === 'edit' ? (
-              mapLegend(mainLegend, layers, toggleLayer, storyMode === 'edit', legendPlace)
+              <>
+                {showAnnotationsTab ? (
+                  <div className={annotationStyles.tabs} role="tablist" aria-label="Map data">
+                    {(['layers', 'annotations'] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        type="button"
+                        role="tab"
+                        aria-selected={mapDataTab === tab}
+                        className={`${annotationStyles.tab}${mapDataTab === tab ? ` ${annotationStyles.tabActive}` : ''}`}
+                        onClick={() => {
+                          setMapDataTab(tab)
+                          if (tab === 'layers') setSelectedAnnotationId(null)
+                        }}
+                      >
+                        {tab === 'layers' ? 'Map layers' : 'Annotations'}
+                        {tab === 'annotations' && mapAnnotations.length > 0 ? (
+                          <span className={annotationStyles.tabCount}>{mapAnnotations.length}</span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {showAnnotationsTab && mapDataTab === 'annotations' ? (
+                  <StoryAnnotationsPanel
+                    items={mapAnnotations}
+                    validity={annotationStates}
+                    selectedId={selectedAnnotationId}
+                    editable={editingAnnotations}
+                    drawing={annotationDrawing}
+                    onAdd={() => setAnnotationPickerOpen(true)}
+                    onSelect={setSelectedAnnotationId}
+                    onChange={updateAnnotation}
+                    onDelete={(id) => {
+                      setMapAnnotations((items) => items.filter((item) => item.id !== id))
+                      setSelectedAnnotationId(null)
+                    }}
+                    onRedraw={(id) => {
+                      const item = mapAnnotations.find((entry) => entry.id === id)
+                      if (item) startAnnotationDrawing(item.tool, id)
+                    }}
+                    onFinishDrawing={() => mapHandleRef.current?.finishDrawing()}
+                    onUndoDrawing={() => mapHandleRef.current?.undoDrawing()}
+                    onCancelDrawing={() => setAnnotationDrawing(null)}
+                  />
+                ) : (
+                  mapLegend(mainLegend, layers, toggleLayer, storyMode === 'edit', legendPlace)
+                )}
+              </>
             ) : null}
           </div>
           ) : null}
@@ -2247,6 +2394,7 @@ export function StoryView({
                 setSlideMenuOpen(false)
                 setLayoutMenuOpen(false)
                 setInfoOpen(false)
+                leaveAnnotationEditing()
               }}
             >
               <Eye size={20} weight="regular" aria-hidden />
@@ -2389,12 +2537,16 @@ export function StoryView({
           document.body,
         )
       : null}
+    {annotationPickerOpen ? (
+      <StoryAnnotationModal onStart={(tool) => startAnnotationDrawing(tool)} onClose={() => setAnnotationPickerOpen(false)} />
+    ) : null}
     {comparisonPickerOpen ? (
       <StoryComparisonModal
         options={comparisonMapOptions}
         initialOptionId={comparison.option.id}
         framePhase={framePhase}
         styleUrl={mapStyle.url}
+        flat={mapStyle.dimension === '2d'}
         onClose={() => setComparisonPickerOpen(false)}
         onApply={(option) => {
           setComparisonBySlide((current) => ({

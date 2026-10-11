@@ -1,0 +1,668 @@
+/* Add-annotation modal */
+
+.modal {
+  width: min(760px, calc(100vw - 64px));
+}
+
+.modalSubtitle {
+  margin: 4px 0 0;
+  color: var(--lc-text-tertiary);
+  font: var(--lc-font-small);
+}
+
+.toolGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: var(--space-2xl);
+}
+
+.toolCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.toolCard:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.toolCardSelected {
+  border-color: #70aeff;
+  background: rgba(112, 174, 255, 0.08);
+}
+
+.toolCard:focus-visible {
+  outline: 2px solid #70aeff;
+  outline-offset: 2px;
+}
+
+.toolPreview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 120 / 64;
+  border-radius: 10px;
+  background: #12161c;
+  color: rgba(255, 255, 255, 0.72);
+  transition: color 140ms ease;
+}
+
+.toolCard:hover .toolPreview,
+.toolCardSelected .toolPreview {
+  color: #70aeff;
+}
+
+.toolCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 4px;
+}
+
+.toolName {
+  color: #fff;
+  font: var(--lc-font-small);
+  font-weight: var(--lc-weight-medium);
+}
+
+.toolDesc {
+  color: rgba(255, 255, 255, 0.62);
+  font: var(--lc-font-small);
+}
+
+.modalFooter {
+  justify-content: flex-end;
+}
+
+.modalNote {
+  flex: 1;
+  min-width: 0;
+  color: var(--lc-text-tertiary);
+  font: var(--lc-font-small);
+}
+
+/* Map Data tabs */
+
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin: 12px 16px 0;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(34, 42, 42, 0.5);
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  margin: 0;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: #fff;
+}
+
+.tabActive {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.tabCount {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Annotations tab. The scroller is full-bleed so its thumb hugs the panel edge; content carries the inset. */
+
+.scroll {
+  max-height: min(48vh, 440px);
+  overflow-y: auto;
+  overflow-y: overlay;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--lc-scrollbar-thumb) transparent;
+}
+
+.scroll::-webkit-scrollbar {
+  width: var(--lc-scrollbar-size);
+}
+
+.scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: var(--lc-scrollbar-thumb);
+}
+
+.scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--lc-scrollbar-thumb-hover);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+
+.empty {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -8px;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+  border-radius: 10px;
+}
+
+.row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.rowHidden .rowMain {
+  opacity: 0.45;
+}
+
+.rowMain {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rowMain:disabled {
+  cursor: default;
+}
+
+.itemIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.rowCopy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rowName,
+.rowMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowName {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.rowMeta {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.rowState {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--state-color);
+}
+
+.iconBtn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.iconBtnOff {
+  color: rgba(255, 255, 255, 0.36);
+}
+
+.addBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 40px;
+  background: rgba(34, 42, 42, 0.5);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.addBtn:hover {
+  background: rgba(132, 220, 255, 0.16);
+}
+
+/* Drawing status */
+
+.drawing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drawingHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drawingIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(112, 174, 255, 0.16);
+  color: #70aeff;
+}
+
+.drawingTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawingBadge {
+  padding: 1px 7px;
+  border: 1px solid rgba(112, 174, 255, 0.3);
+  border-radius: 999px;
+  color: #70aeff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.drawingStep {
+  margin: 0;
+  color: #fff;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.drawingHint {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.drawingActions,
+.propertiesActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.drawingActions > :first-child {
+  margin-right: auto;
+}
+
+.propertiesActions > :first-child {
+  margin-right: auto;
+}
+
+.propertiesActions > button {
+  height: 32px;
+}
+
+.drawingActions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.primaryPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  margin: 0;
+  padding: 0 14px;
+  border: none;
+  border-radius: 999px;
+  background: #70aeff;
+  color: #0b1220;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryPill:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.saveBtn {
+  padding: 0 20px;
+}
+
+/* Properties */
+
+.properties {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.propertiesHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.circleBtn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  background: rgba(34, 42, 42, 0.5);
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.circleBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.circleBtnDanger {
+  color: #ff8a8a;
+}
+
+.circleBtnDanger:hover {
+  background: rgba(190, 65, 65, 0.24);
+  color: #ffb0b0;
+}
+
+.circleBtn:focus-visible {
+  outline: 2px solid #70aeff;
+  outline-offset: 2px;
+}
+
+.nameInput,
+.textInput {
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  outline: none;
+}
+
+.nameInput {
+  flex: 1;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.nameInput:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.nameInput:focus,
+.textInput:focus {
+  border-color: #70aeff;
+}
+
+.textInput {
+  width: 100%;
+  padding: 8px 10px;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(34, 42, 42, 0.5);
+  font-size: 13px;
+  line-height: 18px;
+  resize: none;
+}
+
+.textInput::placeholder {
+  color: rgba(255, 255, 255, 0.36);
+}
+
+.metaRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.metaRow > span {
+  flex: none;
+}
+
+.metaRow b {
+  min-width: 0;
+  color: #fff;
+  font-weight: 500;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.contextTitle {
+  flex: 1;
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.contextInfoBtn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: help;
+}
+
+.contextInfoBtn:hover,
+.contextInfoBtn:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  outline: none;
+}
+
+/* Portaled to the body (fixed) so the panel's scroller doesn't clip it. */
+.contextTip {
+  position: fixed;
+  z-index: 10070;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 260px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(34, 42, 42, 0.92);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.36);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  line-height: 18px;
+  pointer-events: none;
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  animation: contextTipIn 140ms ease-out both;
+}
+
+@keyframes contextTipIn {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+
+.contextDetail {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.stateChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--state-color) 16%, transparent);
+  color: var(--state-color);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.stateChip i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.stateValid {
+  --state-color: #5fd39a;
+}
+
+.stateChanged {
+  --state-color: #ffb547;
+}
+
+.stateInvalid {
+  --state-color: #ff6b6b;
+}

@@ -951,6 +951,12 @@
     transform 160ms ease-out;
 }
 
+/* Edit mode keeps the card's ⋮ menu in the corner, so the toolbar sits beside it. */
+.cardActionsEditing {
+  top: 7px;
+  right: 38px;
+}
+
 .insightCard:hover > .cardActions,
 .cardActions:focus-within {
   opacity: 1;
