@@ -38,15 +38,6 @@ const AED_SAVED_PER_STUDENT = 1350
 /** Demo stand-in for the factory registry: plants within reach of each school close to the industrial belt. */
 const FACTORIES_PER_NEAR_SCHOOL = 2
 
-/** Approach 3 marker scenario: junctions this close to a school count as around it. */
-const SCHOOL_JUNCTION_RADIUS_KM = 0.8
-/** Busiest junctions marked around each school. */
-const JUNCTIONS_PER_SCHOOL = 3
-/** Marked schools stay at least this far apart, so their markers don't overlap. */
-const MARKED_SCHOOL_SPACING_KM = 0.35
-/** Data state the marker scenario's annotations were created in: the first prompt's period. */
-export const MARKERS_PERIOD = '2024–2025'
-
 /** Columns closer than this join the same annotated area. */
 const CLUSTER_KM = 1.7
 /** Padding around the columns of an area, so the outline doesn't cut through them. */
@@ -108,25 +99,6 @@ const DISTRICTS: { name: string; at: [number, number] }[] = [
   { name: MUSSAFAH_LABEL, at: [54.516, 24.346] },
 ]
 
-const STREETS = [
-  'Hamdan St',
-  'Airport Rd',
-  'Corniche Rd',
-  'Electra St',
-  'Muroor Rd',
-  'Al Falah St',
-  'Khaleej Al Arabi St',
-  'Al Saada St',
-  'Najda St',
-  'Al Nahyan St',
-  'Mohammed Bin Khalifa St',
-  'Al Karamah St',
-  'Defence Rd',
-  'Salam St',
-  'Fatima Bint Mubarak St',
-  'Sultan Bin Zayed St',
-]
-
 const SCHOOL_TYPES = ['Public', 'Private'] as const
 const SCHOOL_LEVELS = ['Cycle 1', 'Cycle 2', 'Cycle 3'] as const
 
@@ -158,25 +130,6 @@ export type AnnotatedSchool = {
   /** Change vs the 2 months before, in percent. */
   change: number
   students: number
-  coordinates: [number, number]
-}
-
-/** A monitored junction marked next to a school; the annotation is anchored to the junction itself. */
-export type AnnotatedJunction = {
-  /** Index into the layer's junctions: the feature this marker is anchored to. */
-  junction: number
-  id: string
-  name: string
-  district: string
-  /** Peak-hour vehicles through the junction. */
-  peak: number
-  /** Peak-hour load, percent of capacity. */
-  load: number
-  /** Hours a day over capacity. */
-  congestedHours: number
-  /** Rank of the marked school it sits next to. */
-  school: number
-  distanceM: number
   coordinates: [number, number]
 }
 
@@ -212,13 +165,9 @@ export type StoryMapAnnotation = {
   location: string | null
   /** What the schools are ranked by: nearby traffic, or exposure to the area's factory emissions. */
   metric: 'traffic' | 'emissions'
-  /** `columns` highlights the schools' columns and outlines areas; `markers` pins schools and junctions instead. */
-  style: 'columns' | 'markers'
   color: string
   schools: AnnotatedSchool[]
   areas: AnnotatedArea[]
-  /** Junctions marked next to the schools (marker style only). */
-  junctions: AnnotatedJunction[]
   action: AnnotationAction | null
 }
 
@@ -433,92 +382,7 @@ export function topSchoolsAnnotation(slide: number): StoryMapAnnotation {
       const polygon = paddedOutline(group.map((school) => school.coordinates))
       return areaFrom(`area-${order + 1}`, nearestDistrict(polygonCenter(polygon)), polygon, group, DEMO_JUNCTIONS)
     })
-  return {
-    slide,
-    layer: 'main',
-    location: null,
-    metric: 'traffic',
-    style: 'columns',
-    color: ANNOTATION_COLOR,
-    schools,
-    areas,
-    junctions: [],
-    action: null,
-  }
-}
-
-function junctionName(index: number) {
-  const first = Math.floor(hash01(index, 21) * STREETS.length)
-  const second = (first + 1 + Math.floor(hash01(index, 22) * (STREETS.length - 1))) % STREETS.length
-  return `${STREETS[first]} × ${STREETS[second]}`
-}
-
-/**
- * Approach 3 marker scenario: the 10 schools with the busiest junctions within 800 m, each marked
- * along with up to 3 of those junctions. Markers are anchored to the school and junction features.
- */
-export function schoolMarkersAnnotation(slide: number): StoryMapAnnotation {
-  const radii = sceneState(sceneAtPhase(storySceneAt(slide), 0)).radii
-  const maxRadius = Math.max(...radii, 1)
-  const around = DEMO_COLUMNS.map(([lng, lat], index) => {
-    const coordinates: [number, number] = [lng, lat]
-    const nearby = DEMO_JUNCTIONS.flatMap(([jLng, jLat], junction) => {
-      const km = distanceKm(coordinates, [jLng, jLat])
-      return km <= SCHOOL_JUNCTION_RADIUS_KM && (radii[junction] ?? 0) > 0 ? [{ junction, km }] : []
-    }).sort((a, b) => radii[b.junction] - radii[a.junction])
-    return { index, coordinates, nearby }
-  })
-  // Each junction is marked once, for the school that claims it first, so every school keeps its own junctions.
-  const used = new Set<number>()
-  const picked: (Candidate & { nearby: { junction: number; km: number }[] })[] = []
-  while (picked.length < TOP_SCHOOLS_COUNT) {
-    let best: { candidate: (typeof around)[number]; nearby: { junction: number; km: number }[]; score: number } | null =
-      null
-    for (const candidate of around) {
-      if (picked.some((school) => distanceKm(school.coordinates, candidate.coordinates) < MARKED_SCHOOL_SPACING_KM)) {
-        continue
-      }
-      const nearby = candidate.nearby.filter((item) => !used.has(item.junction)).slice(0, JUNCTIONS_PER_SCHOOL)
-      const score = nearby.reduce((sum, item) => sum + radii[item.junction], 0)
-      if (score > 0 && (!best || score > best.score)) best = { candidate, nearby, score }
-    }
-    if (!best) break
-    for (const item of best.nearby) used.add(item.junction)
-    const { index, coordinates } = best.candidate
-    picked.push({ index, coordinates, nearby: best.nearby, height: radii[best.nearby[0].junction] })
-  }
-  const schools = rankSchools(picked, maxRadius, SCHOOL_NAMES)
-  const junctions: AnnotatedJunction[] = []
-  for (const school of schools) {
-    for (const { junction, km } of picked.find((item) => item.index === school.column)?.nearby ?? []) {
-      const share = radii[junction] / maxRadius
-      const [lng, lat] = DEMO_JUNCTIONS[junction]
-      junctions.push({
-        junction,
-        id: `J-${String(junction + 1).padStart(3, '0')}`,
-        name: junctionName(junction),
-        district: nearestDistrict([lng, lat]),
-        peak: Math.round((900 + share * 2600) / 10) * 10,
-        load: Math.round(62 + share * 58),
-        congestedHours: Math.round((1 + share * 6) * 2) / 2,
-        school: school.rank,
-        distanceM: Math.round((km * 1000) / 10) * 10,
-        coordinates: [lng, lat],
-      })
-    }
-  }
-  return {
-    slide,
-    layer: 'main',
-    location: null,
-    metric: 'traffic',
-    style: 'markers',
-    color: ANNOTATION_COLOR,
-    schools,
-    areas: [],
-    junctions,
-    action: null,
-  }
+  return { slide, layer: 'main', location: null, metric: 'traffic', color: ANNOTATION_COLOR, schools, areas, action: null }
 }
 
 function emissionsAction(location: StoryLocation, schools: AnnotatedSchool[]): AnnotationAction {
@@ -564,11 +428,9 @@ export function locationAnnotation(slide: number, location: StoryLocation): Stor
     layer: region ? 'region' : 'main',
     location: location.name,
     metric: 'emissions',
-    style: 'columns',
     color: LOCATION_ANNOTATION_COLOR,
     schools,
     areas: [areaFrom('area-location', location.name, location.polygon, schools, junctions)],
-    junctions: [],
     action: schools.length > 0 ? emissionsAction(location, schools) : null,
   }
 }

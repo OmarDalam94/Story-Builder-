@@ -56,19 +56,16 @@ import { StoryMapStatesContext, type StoryMapStates } from './story/storyMapStat
 import { StoryAiModeBar, type StoryAiModeStatus } from './story/StoryAiModeBar'
 import { CHART_PERIOD_LABEL, isChartCard, periodPrompt, type ChatComponent } from './story/storyChartPeriod'
 import { sceneAtPhase, storySceneAt } from './story/storyDemoScenes'
-import { periodReply, schoolMarkersReply, topSchoolsReply, withMapState } from './story/storySelectionReplies'
+import { periodReply, topSchoolsReply, withMapState } from './story/storySelectionReplies'
 import {
   TOP_SCHOOLS_PROMPT,
   locationAnnotation,
   locationPrompt,
   locationUsesRegion,
-  schoolMarkersAnnotation,
   topSchoolsAnnotation,
   type StoryLocation,
 } from './story/storyAnnotations'
 import { StoryLocationModal } from './story/StoryLocationModal'
-import { StoryAnnotationMenu } from './story/StoryAnnotationMenu'
-import { mapAnnotationScenario, type MapAnnotationType } from './story/storyMapAnnotationScenarios'
 import type { LandingStory } from './story/storyDemoData'
 import {
   MESH_COLORS_DEMO_PAGE,
@@ -927,7 +924,7 @@ export function CompactAssistantDemo() {
   const ownsStoryAi = storyAi.storyId === null || storyAi.storyId === activeStoryId
   const [storyLocation, setStoryLocation] = useState<StoryLocation | null>(null)
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
-  const storyPrompts = activeStoryId != null && aiFeatures.annotationPrompts
+  const storyPrompts = activeStoryId != null && aiFeatures.addToChat
   /** The picked location's pill is still in the rail composer. */
   const locationInDraft = storyLocation !== null && draft.includes(`@${storyLocation.name}`)
   /** Approach 2's prompts, offered in the rail composer: per location, or city-wide until the map is annotated. */
@@ -938,31 +935,15 @@ export function CompactAssistantDemo() {
       : !(ownsStoryAi && storyAi.snapshot?.annotation)
         ? TOP_SCHOOLS_PROMPT
         : undefined
-  const annotationTypesActive = activeStoryId != null && aiFeatures.annotationTypes
-  const [annotationType, setAnnotationType] = useState<MapAnnotationType | null>(null)
-  /** Approach 3: the picked annotation type's scenario prompt, typed when the rail composer is clicked. */
-  const annotationTypePrompt =
-    annotationTypesActive && annotationType ? mapAnnotationScenario(annotationType).prompt : undefined
 
-  /** Approach 3's marker scenario runs from its typed prompt; the other annotation types aren't built yet. */
-  const markerScenario = annotationTypePrompt !== undefined && annotationType === 'marker'
-
-  /**
-   * Approach 2: the top 10 schools (in a picked location, when set) are annotated as the reply's chart appears.
-   * Approach 3's marker scenario marks the schools and their busiest junctions the same way.
-   */
+  /** Approach 2: the top 10 schools (in a picked location, when set) are annotated as the reply's chart appears. */
   const submitStoryAnnotation = useCallback(
     () => {
       if (streaming) return
       const slide = storySlideIndex
-      const markers = !storyAnnotationPrompt && markerScenario
-      const location = !markers && locationInDraft ? storyLocation : null
+      const location = locationInDraft ? storyLocation : null
       const region = location ? locationUsesRegion(location) : null
-      const annotation = location
-        ? locationAnnotation(slide, location)
-        : markers
-          ? schoolMarkersAnnotation(slide)
-          : topSchoolsAnnotation(slide)
+      const annotation = location ? locationAnnotation(slide, location) : topSchoolsAnnotation(slide)
       const conversationId = activeConversationId ?? uid()
       const previous = ownsStoryAi ? storyAi.snapshot : null
       const filterLabels = previous?.filterLabels ?? {}
@@ -972,24 +953,20 @@ export function CompactAssistantDemo() {
         areaEffect: previous?.areaEffect ?? null,
         filterLabels: region ? { ...filterLabels, loc: MUSSAFAH_LABEL } : filterLabels,
         periodCards: previous?.periodCards,
-        annotation: location ? { slide, location } : markers ? { slide, kind: 'markers' } : { slide },
+        annotation: location ? { slide, location } : { slide },
       }
       const stateId = `map-state-${Date.now()}`
       const place = location?.name ?? 'Abu Dhabi'
-      const baseReply = markers ? schoolMarkersReply(annotation) : topSchoolsReply(annotation)
+      const baseReply = topSchoolsReply(annotation)
       const reply = aiFeatures.mapStateCards
         ? withMapState(baseReply, {
             stateId,
             snapshot,
             title: location
               ? `Schools exposed to factory emissions · ${place}`
-              : markers
-                ? `Schools & busy junctions marked · ${place}`
-                : `Top ${annotation.schools.length} schools by traffic · ${place}`,
+              : `Top ${annotation.schools.length} schools by traffic · ${place}`,
             tag: place,
-            meta: markers
-              ? `${annotation.schools.length} schools · ${annotation.junctions.length} junctions marked`
-              : `${annotation.schools.length} schools annotated`,
+            meta: `${annotation.schools.length} schools annotated`,
           })
         : baseReply
       if (aiFeatures.mapStateCards) setActiveMapStateId(stateId)
@@ -999,11 +976,7 @@ export function CompactAssistantDemo() {
       if (!titleEditedRef.current && !messages.some((msg) => msg.role === 'assistant')) {
         setChatTitle(titleFromReply(reply))
       }
-      const prompt = location
-        ? locationPrompt(location)
-        : markers
-          ? mapAnnotationScenario('marker').prompt
-          : TOP_SCHOOLS_PROMPT
+      const prompt = location ? locationPrompt(location) : TOP_SCHOOLS_PROMPT
       setMessages((m) => [...m, { id: uid(), role: 'user', text: prompt }])
       const messageId = startAssistantReply(reply)
       pendingStoryApplyRef.current = {
@@ -1022,12 +995,10 @@ export function CompactAssistantDemo() {
       activeStoryId,
       aiFeatures.mapStateCards,
       locationInDraft,
-      markerScenario,
       messages,
       ownsStoryAi,
       startAssistantReply,
       storyAi.snapshot,
-      storyAnnotationPrompt,
       storyLocation,
       storySlideIndex,
       streaming,
@@ -1773,14 +1744,9 @@ export function CompactAssistantDemo() {
         findingSlot={findingChrome}
         selectMode={storySelectMode}
         onSelectModeChange={storyActive && aiFeatures.selectTool ? setStorySelectMode : undefined}
-        suggestedPrompt={streaming ? undefined : (storyAnnotationPrompt ?? annotationTypePrompt)}
-        onSendSuggested={storyAnnotationPrompt || markerScenario ? submitStoryAnnotation : undefined}
+        suggestedPrompt={streaming ? undefined : storyAnnotationPrompt}
+        onSendSuggested={submitStoryAnnotation}
         onPickLocation={storyPrompts ? openLocationPicker : undefined}
-        toolbarSlot={
-          annotationTypesActive ? (
-            <StoryAnnotationMenu value={annotationType} onChange={setAnnotationType} disabled={streaming} />
-          ) : undefined
-        }
       />
       {locationPickerOpen ? (
         <StoryLocationModal onApply={applyStoryLocation} onClose={closeLocationPicker} />

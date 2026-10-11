@@ -30,7 +30,6 @@ import type { StoryScene } from './storyDemoScenes'
 import {
   compactAed,
   compactCount,
-  MARKERS_PERIOD,
   TOP_SCHOOLS_COUNT,
   TOP_SCHOOLS_PERIOD,
   type StoryMapAnnotation,
@@ -444,100 +443,6 @@ function emissionsSchoolsReply(annotation: StoryMapAnnotation, location: string)
       {
         type: 'text',
         content: `${rising.name} saw the sharpest rise (+${rising.change}%). Air-quality alerts for these ${count} schools, indoor breaks on high-PM2.5 days and stack-emission checks at the closest factories would cut their exposure the most.`,
-      },
-    ],
-  }
-}
-
-/** Approach 3 marker scenario: schools and their busiest junctions, each marked on the map. */
-export function schoolMarkersReply(annotation: StoryMapAnnotation): AssistantReplyPayload {
-  const { schools, junctions } = annotation
-  const count = schools.length
-  const steps: ThinkingStep[] = [
-    {
-      id: 'markers-intent',
-      kind: 'reasoning',
-      title: `The user wants the ${TOP_SCHOOLS_COUNT} schools with the busiest junctions around them in ${MARKERS_PERIOD}, with the schools and those junctions marked on the map…`,
-    },
-    {
-      id: 'markers-query',
-      kind: 'search',
-      title: `Matching schools to monitored junctions within 800 m and ranking them by peak-hour traffic, ${MARKERS_PERIOD}…`,
-    },
-    {
-      id: 'markers-anchor',
-      kind: 'reasoning',
-      title: 'Picking up to 3 of the busiest junctions per school and anchoring a marker to each school and junction…',
-    },
-    {
-      id: 'markers-context',
-      kind: 'reasoning',
-      title: `Recording each marker's data context — Traffic volume, ${MARKERS_PERIOD} — so it can be re-checked when filters change…`,
-    },
-    { id: 'markers-done', kind: 'done', title: 'Map annotated' },
-  ]
-
-  if (count === 0) {
-    return {
-      headline: 'No schools with monitored junctions nearby.',
-      headlineDetail: 'None of the school columns have a monitored junction within 800 m on this slide.',
-      thinkingSteps: steps,
-      timeline: timeline(steps),
-      blocks: [{ type: 'text', content: 'Try another slide, or widen the distance around each school.' }],
-    }
-  }
-
-  const busiestAt = (rank: number) =>
-    junctions.filter((junction) => junction.school === rank).reduce((max, junction) => Math.max(max, junction.peak), 0)
-  const ranking = chartComponent(
-    'story-top-schools',
-    {
-      type: 'bars',
-      title: `Top ${count} schools by their busiest nearby junction`,
-      value: busiestAt(schools[0].rank).toLocaleString('en-US'),
-      unit: 'veh/h peak at #1',
-      color: annotation.color,
-      rows: schools.map((school) => ({
-        label: `${school.rank}. ${school.name}`,
-        value: (busiestAt(school.rank) / Math.max(1, busiestAt(schools[0].rank))) * 100,
-        display: busiestAt(school.rank).toLocaleString('en-US'),
-      })),
-    },
-    `Peak-hour vehicles at the busiest monitored junction within 800 m of each school, ${MARKERS_PERIOD}.`,
-  )
-  const top = schools[0]
-  const topJunction = [...junctions.filter((junction) => junction.school === top.rank)].sort((a, b) => b.peak - a.peak)[0]
-  const over = junctions.filter((junction) => junction.load > 100)
-  const worst = [...junctions].sort((a, b) => b.load - a.load).slice(0, 2)
-
-  return {
-    headline: `Marked ${count} schools and the ${junctions.length} busy junctions around them on the map.`,
-    headlineDetail: 'Anchored a marker to each school and to its busiest junctions within 800 m, with a tooltip on each.',
-    thinkingSteps: steps,
-    timeline: timeline(steps),
-    createdComponents: [ranking],
-    blocks: [
-      {
-        type: 'text',
-        content: `I marked the ${count} schools with the busiest junctions within 800 m in ${MARKERS_PERIOD}, and the ${junctions.length} junctions behind it — amber pins for the schools, red markers for the junctions. Hover any marker for its details; hovering a school lights up its junctions.`,
-      },
-      { type: 'heading', content: 'Busiest surroundings' },
-      {
-        type: 'text',
-        content: topJunction
-          ? `${top.name} in ${top.district} tops the list: ${topJunction.id} at ${topJunction.name}, ${topJunction.distanceM} m away, carries ${topJunction.peak.toLocaleString('en-US')} vehicles an hour at peak and runs at ${topJunction.load}% of capacity. ${over.length} of the ${junctions.length} marked junctions go over capacity at peak.`
-          : `${top.name} in ${top.district} tops the list.`,
-      },
-      visual(ranking),
-      { type: 'heading', content: 'How the markers stay accurate' },
-      {
-        type: 'text',
-        content: `Each marker is anchored to its school or junction, not to a spot on the screen, so it stays put as you pan, zoom, rotate or tilt the map. Each one also records the data it was made from — Traffic volume, ${MARKERS_PERIOD} — and is Valid right now. If a later filter drops a school or junction from the data, its marker is flagged as no longer applying instead of silently staying on the map.`,
-      },
-      { type: 'heading', content: 'Insights' },
-      {
-        type: 'text',
-        content: `Staggered drop-off times and signal priority at ${worst.map((junction) => `${junction.id} (${junction.load}%)`).join(' and ')} would relieve the most school traffic at once.`,
       },
     ],
   }
