@@ -24,6 +24,7 @@ export function StoryMapStateCard({ stateId, snapshot, title, tag, meta }: Story
       disabled={!states}
       aria-pressed={active}
       aria-label={`Show map view: ${title}`}
+      title={title}
     >
       <div className={styles.media}>
         {capture ? (

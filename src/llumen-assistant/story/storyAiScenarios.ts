@@ -33,7 +33,7 @@ export type StoryAiSnapshot = {
   /** Chart cards re-scoped to the 2024–2025 period; the map is untouched. */
   periodCards?: ChartCardId[]
   /** Top-10 schools annotated on the map, from the data of this slide (inside `location` when set). */
-  annotation?: { slide: number; location?: StoryLocation }
+  annotation?: { slide: number; location?: StoryLocation; kind?: 'markers' }
   /** Raw map camera to fly back to (zoom includes the map's zoom offset). */
   camera?: StorySceneCamera
 }

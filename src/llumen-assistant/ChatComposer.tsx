@@ -125,11 +125,16 @@ function editorIsEmpty(root: HTMLElement): boolean {
   return text.length === 0 && !root.querySelector('[data-inline-mention]')
 }
 
-/** Whether the editor holds anything besides mention chips. */
-function hasFreeText(root: HTMLElement): boolean {
+/** The editor's text without mention chips. */
+function freeText(root: HTMLElement): string {
   const copy = root.cloneNode(true) as HTMLElement
   copy.querySelectorAll('[data-inline-mention]').forEach((chip) => chip.remove())
-  return (copy.textContent ?? '').replace(/\u00a0/g, ' ').trim().length > 0
+  return (copy.textContent ?? '').replace(/\u00a0/g, ' ').trim()
+}
+
+/** Whether the editor holds anything besides mention chips. */
+function hasFreeText(root: HTMLElement): boolean {
+  return freeText(root).length > 0
 }
 
 function getMentionTrigger(editor: HTMLElement): { query: string; triggerLength: number } | null {
@@ -404,6 +409,8 @@ export type ChatComposerProps = {
   onSendSuggested?: () => void
   /** Adds "Location" to the @ menu; picking it removes the trigger and calls this. */
   onPickLocation?: () => void
+  /** Extra controls after "Add context" in the toolbar. */
+  toolbarSlot?: ReactNode
 }
 
 export type ChatComposerHandle = {
@@ -428,6 +435,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
     suggestedPrompt,
     onSendSuggested,
     onPickLocation,
+    toolbarSlot = null,
   },
   ref,
 ) {
@@ -503,7 +511,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   const typeSuggestedPrompt = () => {
     const editor = editorRef.current
     const prompt = suggestedPrompt
-    if (!editor || !prompt || editorDisabled || typingTimerRef.current !== null || hasFreeText(editor)) return
+    if (!editor || !prompt || editorDisabled || typingTimerRef.current !== null) return
+    // An unedited suggestion is replaced when the suggested prompt has changed since it was typed.
+    if (hasFreeText(editor) && !(suggestionTypedRef.current && freeText(editor) !== prompt)) return
     // Mention chips stay; the prompt is typed after them.
     const chips = [...editor.querySelectorAll('[data-inline-mention]')]
     editor.replaceChildren()
@@ -1083,6 +1093,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
                 <At size={16} weight="regular" aria-hidden />
                 Add context
               </button>
+              {toolbarSlot}
             </>
           ) : null}
         </div>

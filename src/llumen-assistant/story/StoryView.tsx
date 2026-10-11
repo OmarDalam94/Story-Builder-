@@ -123,7 +123,7 @@ import {
   type ChatComponent,
 } from './storyChartPeriod'
 import { DEMO_COLUMNS, DEMO_JUNCTIONS } from './storyDemoMapData'
-import { locationAnnotation, topSchoolsAnnotation } from './storyAnnotations'
+import { locationAnnotation, schoolMarkersAnnotation, topSchoolsAnnotation } from './storyAnnotations'
 import { StoryComparisonModal } from './StoryComparisonModal'
 import { comparisonOptions, comparisonPhase, type ComparisonMapOption } from './storyComparison'
 import { createCameraLink } from './storyCameraLink'
@@ -557,8 +557,12 @@ export function StoryView({
   // Feature-anchored to one slide's data: other slides show different values in those columns.
   const mapAnnotation = useMemo(() => {
     if (!annotationRequest) return null
-    const { slide: from, location } = annotationRequest
-    const annotation = location ? locationAnnotation(from, location) : topSchoolsAnnotation(from)
+    const { slide: from, location, kind } = annotationRequest
+    const annotation = location
+      ? locationAnnotation(from, location)
+      : kind === 'markers'
+        ? schoolMarkersAnnotation(from)
+        : topSchoolsAnnotation(from)
     if (annotation.layer === 'region') return aiRegion ? annotation : null
     return from === activeSlideIndex && !aiRegion ? annotation : null
   }, [activeSlideIndex, aiRegion, annotationRequest])

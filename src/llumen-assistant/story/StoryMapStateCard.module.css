@@ -55,7 +55,7 @@
 .media {
   position: relative;
   width: 100%;
-  aspect-ratio: 2.2 / 1;
+  aspect-ratio: 3.6 / 1;
   overflow: hidden;
   -webkit-mask-image: linear-gradient(to bottom, #000 0% 65%, transparent 100%);
   mask-image: linear-gradient(to bottom, #000 0% 65%, transparent 100%);
@@ -144,32 +144,30 @@
 .body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 0 14px 12px;
+  gap: 2px;
+  padding: 0 12px 10px;
   min-width: 0;
 }
 
 .tag {
   overflow: hidden;
   color: rgba(255, 255, 255, 0.48);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  line-height: 16px;
+  line-height: 14px;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
 .title {
-  display: -webkit-box;
   overflow: hidden;
   color: #fff;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
-  line-height: 20px;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .meta {

@@ -28,6 +28,8 @@ import {
   type StoryMapRegion,
 } from './storyAiScenarios'
 import {
+  MARKERS_PERIOD,
+  type AnnotatedJunction,
   type AnnotatedSchool,
   type AnnotationAction,
   type StoryMapAnnotation,
@@ -58,10 +60,20 @@ const ANNOTATION_WALL_WIDTH_M = 6
 const ANNOTATION_WALL_OPACITY = 0.7
 /** Opacity kept by disks outside the annotated areas. */
 const ANNOTATION_DISK_FADE = 0.4
+/** Marker annotations fade the unmarked junction disks further, so the marked ones read at a glance. */
+const MARKER_DISK_FADE = 0.22
+/** Zoom backed off from the fit around the marked schools and junctions. */
+const MARKERS_ZOOM_OUT = 0.2
+/** Half the school marker's ground shadow, so the shadow's centre sits on the school. */
+const MARKER_SHADOW_HALF_PX = 2
+/** Closest a marker tooltip gets to the map's left or right edge. */
+const MARKER_TIP_EDGE_PX = 12
 /** Added to the map padding when framing annotated areas; the top leaves room for tall columns and pins. */
 /** Tall columns reach above the camera, so pins sit on the column no higher than this. */
 const ANNOTATION_PIN_MAX_ALTITUDE_M = 500
 const ANNOTATION_FIT_PADDING = { top: 300, right: 90, bottom: 90, left: 70 }
+/** Markers sink the columns, so they need less headroom, but the right side clears the map data panel. */
+const MARKERS_FIT_PADDING = { top: 140, right: 220, bottom: 110, left: 70 }
 /** Gap between the tallest annotated column's top and the action card. */
 const ACTION_CLEARANCE_PX = 36
 /** The action card never rises closer than this to the top of the map. */
@@ -338,9 +350,11 @@ function addAnnotationWalls(map: mapboxgl.Map) {
   }
 }
 
-/** A picked area keeps only its top 10 columns: the rest sink as the annotation fades in. */
+/** A picked area keeps only its top 10 columns: the rest sink as the annotation fades in. Markers sink them all. */
 function notedScales(note: FrameAnnotation | null, scales: number[]) {
-  if (!note?.value.location || note.mix <= 0) return scales
+  if (!note || note.mix <= 0) return scales
+  if (note.value.style === 'markers') return scales.map((scale) => scale * (1 - note.mix))
+  if (!note.value.location) return scales
   return scales.map((scale, index) => (note.ranks.has(index) ? scale : scale * (1 - note.mix)))
 }
 
@@ -367,7 +381,9 @@ function notedColor(note: FrameAnnotation | null, index: number, base: [number, 
 }
 
 function notedFade(note: FrameAnnotation | null, index: number) {
-  return note && note.mix > 0 && !note.junctionInside[index] ? 1 - (1 - ANNOTATION_DISK_FADE) * note.mix : 1
+  if (!note || note.mix <= 0 || note.junctionInside[index]) return 1
+  const floor = note.value.style === 'markers' ? MARKER_DISK_FADE : ANNOTATION_DISK_FADE
+  return 1 - (1 - floor) * note.mix
 }
 
 function drawStory(map: mapboxgl.Map, frame: StoryFrame) {
@@ -581,6 +597,132 @@ function schoolPin(school: AnnotatedSchool, color: string, metric: StoryMapAnnot
   return pin
 }
 
+const SCHOOL_SVG =
+  '<svg viewBox="0 0 256 256" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M176,207.24a119,119,0,0,0,16-7.73V240a8,8,0,0,1-16,0Zm11.76-88.43-56-29.87a8,8,0,0,0-7.52,14.12L171,128l17-9.06Zm64-29.87-120-64a8,8,0,0,0-7.52,0l-120,64a8,8,0,0,0,0,14.12L32,117.87v48.42a15.91,15.91,0,0,0,4.06,10.65C49.16,191.53,78.51,216,128,216a130,130,0,0,0,48-8.76V130.67L171,128l-43,22.93L43.83,106l0,0L25,96,128,41.07,231,96l-18.78,10-.06,0L188,118.94a8,8,0,0,1,4,6.93v73.64a115.63,115.63,0,0,0,27.94-22.57A15.91,15.91,0,0,0,224,166.29V117.87l27.76-14.81a8,8,0,0,0,0-14.12Z"/></svg>'
+const JUNCTION_SVG =
+  '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><rect x="4" y="0.5" width="8" height="15" rx="2.5" fill="currentColor"/><circle cx="8" cy="4" r="1.6" fill="#1a0b0b"/><circle cx="8" cy="8" r="1.6" fill="#1a0b0b"/><circle cx="8" cy="12" r="1.6" fill="#1a0b0b"/></svg>'
+
+/** Hover card shared by the school and junction markers, ending with the annotation's data context. */
+function markerTip(tag: string, name: string, meta: string, rows: [string, string][], anchor: string, extra?: HTMLElement) {
+  const tip = element('div', styles.annotationTip)
+  const head = element('div', styles.annotationTipHead)
+  head.append(element('span', styles.annotationTipRank, tag), element('b', '', name))
+  const stats = element('dl', styles.annotationTipStats)
+  for (const [label, value] of rows) {
+    const row = element('div', '')
+    row.append(element('dt', '', label), element('dd', '', value))
+    stats.append(row)
+  }
+  const context = element('div', styles.markerContext)
+  const validity = element('span', styles.markerValid, 'Valid')
+  context.append(validity, element('span', '', `Anchored to this ${anchor} · Traffic volume ${MARKERS_PERIOD}`))
+  tip.append(head, element('p', styles.annotationTipMeta, meta), stats, ...(extra ? [extra] : []), context)
+  return tip
+}
+
+function schoolMarker(school: AnnotatedSchool, junctions: AnnotatedJunction[]) {
+  const root = element('div', `${styles.marker} ${styles.markerSchool}`)
+  root.style.setProperty('--annotation-delay', `${380 + school.rank * 70}ms`)
+  root.dataset.school = String(school.rank)
+  const pin = element('span', styles.markerPin)
+  const badge = element('span', styles.markerPinBadge)
+  badge.innerHTML = SCHOOL_SVG
+  badge.append(element('b', '', String(school.rank)))
+  pin.append(badge)
+  const busiest = junctions.reduce<AnnotatedJunction | null>((best, item) => (!best || item.peak > best.peak ? item : best), null)
+  const list = element('ul', styles.markerJunctionList)
+  for (const junction of junctions) {
+    const item = element('li', '')
+    item.append(element('span', '', `${junction.id} · ${junction.name}`), element('b', '', `${junction.load}%`))
+    list.append(item)
+  }
+  const tip = markerTip(
+    `#${school.rank}`,
+    school.name,
+    `${school.district} · ${school.type} · ${school.level}`,
+    [
+      ['Busiest junction nearby', busiest ? `${busiest.peak.toLocaleString('en-US')} veh/h` : '—'],
+      ['Marked junctions (800 m)', String(junctions.length)],
+      ['Students', school.students.toLocaleString('en-US')],
+    ],
+    'school',
+    junctions.length > 0 ? list : undefined,
+  )
+  root.append(tip, pin, element('span', styles.markerShadow))
+  return root
+}
+
+function junctionMarker(junction: AnnotatedJunction, school: AnnotatedSchool | undefined) {
+  const root = element('div', `${styles.marker} ${styles.markerJunction}`)
+  root.style.setProperty('--annotation-delay', `${900 + junction.school * 70}ms`)
+  root.dataset.school = String(junction.school)
+  const dot = element('span', styles.markerJunctionDot)
+  dot.innerHTML = JUNCTION_SVG
+  const tip = markerTip(
+    junction.id,
+    junction.name,
+    `${junction.district} · ${junction.distanceM} m from ${school?.name ?? 'the school'}`,
+    [
+      ['Peak traffic', `${junction.peak.toLocaleString('en-US')} veh/h`],
+      ['Peak load', `${junction.load}% of capacity`],
+      ['Over capacity', `${junction.congestedHours} h/day`],
+    ],
+    'junction',
+  )
+  root.append(tip, dot)
+  return root
+}
+
+/** Hovering a school lights up its junctions, and hovering a junction lights up its school. */
+/** Slides a marker's tooltip sideways so it stays inside the map near the edges. */
+function keepTipInMap(node: HTMLElement) {
+  const tip = node.querySelector<HTMLElement>(`.${styles.annotationTip}`)
+  const frame = node.closest('.mapboxgl-map')?.getBoundingClientRect()
+  if (!tip || !frame) return
+  const rect = node.getBoundingClientRect()
+  const center = rect.left + rect.width / 2
+  const half = tip.offsetWidth / 2
+  const shift =
+    Math.max(0, frame.left + MARKER_TIP_EDGE_PX - (center - half)) -
+    Math.max(0, center + half - (frame.right - MARKER_TIP_EDGE_PX))
+  node.style.setProperty('--marker-tip-shift', `${shift}px`)
+}
+
+function linkMarkers(nodes: HTMLElement[]) {
+  for (const node of nodes) {
+    const related = () => nodes.filter((other) => other !== node && other.dataset.school === node.dataset.school)
+    node.addEventListener('mouseenter', () => {
+      keepTipInMap(node)
+      related().forEach((other) => other.classList.add(styles.markerLinked))
+    })
+    node.addEventListener('mouseleave', () => related().forEach((other) => other.classList.remove(styles.markerLinked)))
+  }
+}
+
+function addMarkerAnnotation(map: mapboxgl.Map, value: StoryMapAnnotation) {
+  const markers = [
+    ...value.junctions.map((junction) =>
+      new mapboxgl.Marker({
+        element: junctionMarker(junction, value.schools.find((school) => school.rank === junction.school)),
+        anchor: 'center',
+      }).setLngLat(junction.coordinates),
+    ),
+    ...value.schools.map((school) =>
+      new mapboxgl.Marker({
+        element: schoolMarker(
+          school,
+          value.junctions.filter((junction) => junction.school === school.rank),
+        ),
+        anchor: 'bottom',
+        offset: [0, MARKER_SHADOW_HALF_PX],
+      }).setLngLat(school.coordinates),
+    ),
+  ]
+  linkMarkers(markers.map((marker) => marker.getElement()))
+  for (const marker of markers) marker.addTo(map)
+  return { pins: new Map<number, mapboxgl.Marker>(), labels: markers, action: null }
+}
+
 function areaLabel(text: string, color: string) {
   const marker = element('div', styles.annotationAreaMarker)
   marker.style.setProperty('--annotation-color', color)
@@ -618,6 +760,7 @@ function placeActionPin(map: mapboxgl.Map, note: FrameAnnotation | null) {
 }
 
 function addAnnotationMarkers(map: mapboxgl.Map, value: StoryMapAnnotation) {
+  if (value.style === 'markers') return addMarkerAnnotation(map, value)
   const pins = new Map<number, mapboxgl.Marker>()
   for (const school of value.schools) {
     const marker = new mapboxgl.Marker({ element: schoolPin(school, value.color, value.metric), anchor: 'bottom' })
@@ -1041,27 +1184,41 @@ export function StoryMap({
       const polygons = annotation.areas.map((area) => area.polygon)
       const regionCamera = annotation.layer === 'region' ? region?.camera : undefined
       const junctions = annotation.layer === 'region' ? (region?.junctions ?? []) : DEMO_JUNCTIONS
+      const marked = new Set(annotation.junctions.map((junction) => junction.junction))
       frame.annotation = {
         value: annotation,
         rgb: hexToRgb(annotation.color),
         ranks: new Map(annotation.schools.map((school) => [school.column, school.rank])),
-        junctionInside: junctions.map(([lng, lat]) => polygons.some((polygon) => pointInPolygon([lng, lat], polygon))),
+        junctionInside: junctions.map(
+          ([lng, lat], index) => marked.has(index) || polygons.some((polygon) => pointInPolygon([lng, lat], polygon)),
+        ),
         mix: 0,
         ...addAnnotationMarkers(map, annotation),
       }
       setSourceData(map, 'story-annotation', annotationAreaData(frame.annotation))
       const bounds = new mapboxgl.LngLatBounds()
       for (const polygon of polygons) for (const point of polygon) bounds.extend(point)
+      for (const school of annotation.schools) bounds.extend(school.coordinates)
+      for (const junction of annotation.junctions) bounds.extend(junction.coordinates)
       // Let the agent rail finish resizing the map before framing the areas.
       window.setTimeout(() => {
         if (frameRef.current.annotation?.value !== annotation || mapRef.current !== map) return
         const pitch = regionCamera?.pitch ?? map.getPitch()
         const bearing = regionCamera?.bearing ?? map.getBearing()
-        const fit = map.cameraForBounds(bounds, { padding: ANNOTATION_FIT_PADDING, pitch, bearing })
+        const padding = annotation.style === 'markers' ? MARKERS_FIT_PADDING : ANNOTATION_FIT_PADDING
+        const fit = map.cameraForBounds(bounds, { padding, pitch, bearing })
         if (!fit?.center || fit.zoom === undefined) return
         map.flyTo({
           center: fit.center,
-          zoom: fit.zoom - (annotation.action ? ACTION_ZOOM_OUT : annotation.location ? 0 : ANNOTATION_ZOOM_OUT),
+          zoom:
+            fit.zoom -
+            (annotation.action
+              ? ACTION_ZOOM_OUT
+              : annotation.location
+                ? 0
+                : annotation.style === 'markers'
+                  ? MARKERS_ZOOM_OUT
+                  : ANNOTATION_ZOOM_OUT),
           pitch,
           bearing,
           duration: CAMERA_DURATION_MS,

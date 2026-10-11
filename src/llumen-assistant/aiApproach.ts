@@ -4,7 +4,7 @@
  * approach can borrow another's interaction by flipping its flag.
  */
 
-export type AiApproach = 'approach-1' | 'approach-2'
+export type AiApproach = 'approach-1' | 'approach-2' | 'approach-3'
 
 export type AiApproachFeatures = {
   /** Select tool: pick components or drag a map area, then prompt about it (scenarios 1 and 2). */
@@ -15,6 +15,10 @@ export type AiApproachFeatures = {
   aiModeBar: boolean
   /** Hovering a chart card offers "Add to chat", which attaches it to the story chatbox. */
   addToChat: boolean
+  /** Approach 2's follow-up prompts: top schools annotated on the map, and the location picker. */
+  annotationPrompts: boolean
+  /** Rail composer menu of map annotation types; the picked type's scenario prompt is typed on click. */
+  annotationTypes: boolean
 }
 
 export type AiApproachOption = {
@@ -29,13 +33,40 @@ export const AI_APPROACHES: AiApproachOption[] = [
     id: 'approach-1',
     label: 'Approach 1',
     description: 'Select tool, map snapshots, AI mode',
-    features: { selectTool: true, mapStateCards: true, aiModeBar: true, addToChat: false },
+    features: {
+      selectTool: true,
+      mapStateCards: true,
+      aiModeBar: true,
+      addToChat: false,
+      annotationPrompts: false,
+      annotationTypes: false,
+    },
   },
   {
     id: 'approach-2',
     label: 'Approach 2',
     description: 'Add components to chat, map snapshots',
-    features: { selectTool: false, mapStateCards: true, aiModeBar: true, addToChat: true },
+    features: {
+      selectTool: false,
+      mapStateCards: true,
+      aiModeBar: true,
+      addToChat: true,
+      annotationPrompts: true,
+      annotationTypes: false,
+    },
+  },
+  {
+    id: 'approach-3',
+    label: 'Approach 3',
+    description: 'Add components to chat, map annotation types',
+    features: {
+      selectTool: false,
+      mapStateCards: true,
+      aiModeBar: true,
+      addToChat: true,
+      annotationPrompts: false,
+      annotationTypes: true,
+    },
   },
 ]
 
@@ -52,7 +83,7 @@ function isAiApproach(value: unknown): value is AiApproach {
 export function readAiApproach(): AiApproach {
   if (typeof window === 'undefined') return 'approach-1'
   const fromUrl = new URLSearchParams(window.location.search).get('ai')
-  if (fromUrl === '1' || fromUrl === '2') return `approach-${fromUrl}`
+  if (fromUrl === '1' || fromUrl === '2' || fromUrl === '3') return `approach-${fromUrl}`
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY)
     if (isAiApproach(stored)) return stored
