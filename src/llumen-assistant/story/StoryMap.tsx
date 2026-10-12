@@ -38,7 +38,9 @@ import {
   annotationAt,
   drawAnnotations,
   mountAnnotationLayers,
+  setAnnotationLift,
   startAnnotationDrawing,
+  startAnnotationEditing,
   type AnnotationDrawing,
 } from './storyMapAnnotationLayer'
 import type { AnnotationTool, AnnotationValidity, DrawnShape, MapAnnotationItem } from './storyMapAnnotations'
@@ -113,6 +115,9 @@ export type StoryMapAnnotationLayer = {
   onDrawn?: (shape: DrawnShape) => void
   onDrawProgress?: (points: number) => void
   onDrawCancel?: () => void
+  /** An annotation whose anchor points can be dragged; leave it out of `items` while it is edited. */
+  editing?: MapAnnotationItem | null
+  onEdited?: (shape: DrawnShape) => void
 }
 
 const NO_VALIDITY: Record<string, AnnotationValidity> = {}
@@ -893,7 +898,7 @@ export function StoryMap({
 
     map.on('load', () => {
       mountStoryLayers(map, frameRef.current)
-      mountAnnotationLayers(map)
+      mountAnnotationLayers(map, frameRef.current.lift)
       syncDemoLayers(map, layersRef.current)
       setReady(true)
     })
@@ -1236,7 +1241,7 @@ export function StoryMap({
     setReady(false)
     map.once('style.load', () => {
       mountStoryLayers(map, frameRef.current)
-      mountAnnotationLayers(map)
+      mountAnnotationLayers(map, frameRef.current.lift)
       syncDemoLayers(map, layersRef.current)
       setReady(true)
     })
@@ -1267,6 +1272,7 @@ export function StoryMap({
   const annotationValidity = annotations?.validity ?? NO_VALIDITY
   const selectedAnnotationId = annotations?.selectedId ?? null
   const drawingTool = annotations?.drawing ?? null
+  const editingId = annotations?.editing?.id ?? null
   const selectable = Boolean(annotations?.onSelect)
 
   useEffect(() => {
@@ -1279,7 +1285,7 @@ export function StoryMap({
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !ready || !selectable || drawingTool) return
+    if (!map || !ready || !selectable || drawingTool || editingId) return
     const canvas = map.getCanvas()
     const onClick = (event: mapboxgl.MapMouseEvent) => annotationsRef.current?.onSelect?.(annotationAt(map, event.point))
     const onMove = (event: mapboxgl.MapMouseEvent) => {
@@ -1292,7 +1298,19 @@ export function StoryMap({
       map.off('mousemove', onMove)
       canvas.style.cursor = ''
     }
-  }, [selectable, drawingTool, ready])
+  }, [selectable, drawingTool, editingId, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    const item = annotationsRef.current?.editing
+    if (!map || !ready || !editingId || !item || item.id !== editingId) return
+    const { distribution, junctions } = layersRef.current
+    const editing = startAnnotationEditing(map, item, {
+      snapLayers: { columns: distribution, junctions },
+      onChange: (shape) => annotationsRef.current?.onEdited?.(shape),
+    })
+    return () => editing.destroy()
+  }, [editingId, ready])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1328,8 +1346,10 @@ export function StoryMap({
     const start = performance.now()
     const step = (now: number) => {
       const t = Math.min(1, (now - start) / DIMENSION_EASE_MS)
-      frame.lift = from + (to - from) * easeInOutCubic(t)
+      // Float error can dip a hair below 0, which Mapbox rejects as an opacity.
+      frame.lift = Math.max(0, Math.min(1, from + (to - from) * easeInOutCubic(t)))
       drawAnnotationArea(map, frame.annotation, frame.lift)
+      setAnnotationLift(map, frame.lift)
       drawStory(map, frame)
       liftTweenRef.current = t < 1 ? requestAnimationFrame(step) : null
     }

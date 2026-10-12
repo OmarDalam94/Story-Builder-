@@ -130,14 +130,12 @@ import { createCameraLink } from './storyCameraLink'
 import type { BackgroundBasemap, StoryBackground } from './storyBackground'
 import { StoryBackgroundLayer } from './StoryBackgroundLayer'
 import { BackgroundSettings } from './StoryBackgroundSettings'
-import { StoryAnnotationModal } from './StoryAnnotationModal'
-import { StoryAnnotationsPanel, type AnnotationDrawingState } from './StoryAnnotationsPanel'
+import { StoryAnnotationsPanel, type AnnotationDrawingState, type AnnotationPatch } from './StoryAnnotationsPanel'
 import {
   annotationValidity,
   createAnnotation,
-  redrawAnnotation,
+  reshapeAnnotation,
   type AnnotationData,
-  type AnnotationStyle,
   type DrawnShape,
   type MapAnnotationItem,
 } from './storyMapAnnotations'
@@ -421,7 +419,8 @@ export function StoryView({
   const [mapAnnotations, setMapAnnotations] = useState<MapAnnotationItem[]>([])
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
   const [annotationDrawing, setAnnotationDrawing] = useState<AnnotationDrawingState | null>(null)
-  const [annotationPickerOpen, setAnnotationPickerOpen] = useState(false)
+  /** The annotation being reshaped on the flat map, and how it looked before, for Cancel. */
+  const [annotationEditing, setAnnotationEditing] = useState<{ id: string; original: MapAnnotationItem } | null>(null)
   const backgroundPanelTitle =
     background.kind === 'basemap'
       ? 'Map Data'
@@ -598,46 +597,73 @@ export function StoryView({
   )
   const editingAnnotations = storyMode === 'edit'
   const showAnnotationsTab = editingAnnotations || mapAnnotations.length > 0
-  const redrawingId = annotationDrawing?.redrawId ?? null
-  const mapAnnotationItems = useMemo(
-    () => (redrawingId ? mapAnnotations.filter((item) => item.id !== redrawingId) : mapAnnotations),
-    [mapAnnotations, redrawingId],
+  const editingAnnotationId = annotationEditing?.id ?? null
+  const editingAnnotation = useMemo(
+    () => (editingAnnotationId ? (mapAnnotations.find((item) => item.id === editingAnnotationId) ?? null) : null),
+    [editingAnnotationId, mapAnnotations],
   )
-  const startAnnotationDrawing = (tool: AnnotationDrawingState['tool'], redrawId: string | null = null) => {
-    setAnnotationPickerOpen(false)
+  // The edited annotation is drawn by the editing session (with its handles) instead of the regular layers.
+  const mapAnnotationItems = useMemo(
+    () => (editingAnnotationId ? mapAnnotations.filter((item) => item.id !== editingAnnotationId) : mapAnnotations),
+    [editingAnnotationId, mapAnnotations],
+  )
+  const startAnnotationDrawing = (tool: AnnotationDrawingState['tool']) => {
+    setAnnotationEditing(null)
     setEditSection(null)
     setMapDataTab('annotations')
     setLegendOpen(true)
-    setSelectedAnnotationId(redrawId)
-    setAnnotationDrawing({ tool, points: 0, redrawId })
+    setSelectedAnnotationId(null)
+    setAnnotationDrawing({ tool, points: 0 })
   }
   const onAnnotationDrawn = (shape: DrawnShape) => {
     setAnnotationDrawing(null)
-    if (redrawingId) {
-      setMapAnnotations((items) =>
-        items.map((item) =>
-          item.id === redrawingId ? redrawAnnotation(item, shape, annotationData, annotationDataLabel) : item,
-        ),
-      )
-      setSelectedAnnotationId(redrawingId)
-      return
-    }
     const item = createAnnotation(shape, mapAnnotations, annotationData, annotationDataLabel)
-    setMapAnnotations((items) => [...items, item])
+    setMapAnnotations((items) => [item, ...items])
     setSelectedAnnotationId(item.id)
   }
-  const updateAnnotation = (
-    id: string,
-    patch: Partial<Pick<MapAnnotationItem, 'name' | 'visible'>> & { style?: Partial<AnnotationStyle> },
-  ) =>
+  const updateAnnotation = (id: string, patch: AnnotationPatch) =>
     setMapAnnotations((items) =>
       items.map((item) =>
         item.id === id ? { ...item, ...patch, style: patch.style ? { ...item.style, ...patch.style } : item.style } : item,
       ),
     )
+  const editAnnotationShape = (id: string) => {
+    const original = mapAnnotations.find((item) => item.id === id)
+    if (!original) return
+    setAnnotationDrawing(null)
+    setSelectedAnnotationId(id)
+    setAnnotationEditing({ id, original })
+  }
+  const onAnnotationEdited = (shape: DrawnShape) => {
+    if (!editingAnnotationId) return
+    setMapAnnotations((items) =>
+      items.map((item) =>
+        item.id === editingAnnotationId ? reshapeAnnotation(item, shape, annotationData, annotationDataLabel) : item,
+      ),
+    )
+  }
+  const cancelAnnotationEditing = () => {
+    if (annotationEditing) {
+      const { id, original } = annotationEditing
+      // Only the shape reverts; color, text and layer settings changed meanwhile stay.
+      setMapAnnotations((items) =>
+        items.map((item) =>
+          item.id === id ? { ...original, style: item.style, visible: item.visible, opacity: item.opacity } : item,
+        ),
+      )
+    }
+    setAnnotationEditing(null)
+  }
+  const reorderAnnotations = (from: number, to: number) =>
+    setMapAnnotations((items) => {
+      const next = [...items]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
   const leaveAnnotationEditing = () => {
     setAnnotationDrawing(null)
-    setAnnotationPickerOpen(false)
+    setAnnotationEditing(null)
     setSelectedAnnotationId(null)
   }
   const previewStory: LandingStory = {
@@ -1813,7 +1839,7 @@ export function StoryView({
           frameDuration={timelinePlaying ? frameStepMs : 500}
           frameLinear={timelinePlaying}
           styleUrl={mapStyle.url}
-          flat={mapStyle.dimension === '2d' || annotationDrawing !== null}
+          flat={mapStyle.dimension === '2d' || annotationDrawing !== null || annotationEditing !== null}
           cameraLink={viewLayout === 'comparison' && mapsLinked ? cameraLink : undefined}
           region={aiRegion}
           cameraRequest={cameraRequest}
@@ -1836,6 +1862,8 @@ export function StoryView({
             onDrawProgress: (points) =>
               setAnnotationDrawing((current) => (current && current.points !== points ? { ...current, points } : current)),
             onDrawCancel: () => setAnnotationDrawing(null),
+            editing: editingAnnotation,
+            onEdited: onAnnotationEdited,
           }}
           onHandle={onMapHandle}
         />
@@ -2290,24 +2318,25 @@ export function StoryView({
                 {showAnnotationsTab && mapDataTab === 'annotations' ? (
                   <StoryAnnotationsPanel
                     items={mapAnnotations}
-                    validity={annotationStates}
                     selectedId={selectedAnnotationId}
                     editable={editingAnnotations}
                     drawing={annotationDrawing}
-                    onAdd={() => setAnnotationPickerOpen(true)}
+                    editingId={editingAnnotationId}
+                    onStartDrawing={startAnnotationDrawing}
+                    onFinishDrawing={() => mapHandleRef.current?.finishDrawing()}
+                    onUndoDrawing={() => mapHandleRef.current?.undoDrawing()}
+                    onCancelDrawing={() => setAnnotationDrawing(null)}
                     onSelect={setSelectedAnnotationId}
                     onChange={updateAnnotation}
                     onDelete={(id) => {
                       setMapAnnotations((items) => items.filter((item) => item.id !== id))
                       setSelectedAnnotationId(null)
+                      if (editingAnnotationId === id) setAnnotationEditing(null)
                     }}
-                    onRedraw={(id) => {
-                      const item = mapAnnotations.find((entry) => entry.id === id)
-                      if (item) startAnnotationDrawing(item.tool, id)
-                    }}
-                    onFinishDrawing={() => mapHandleRef.current?.finishDrawing()}
-                    onUndoDrawing={() => mapHandleRef.current?.undoDrawing()}
-                    onCancelDrawing={() => setAnnotationDrawing(null)}
+                    onEdit={editAnnotationShape}
+                    onFinishEditing={() => setAnnotationEditing(null)}
+                    onCancelEditing={cancelAnnotationEditing}
+                    onReorder={reorderAnnotations}
                   />
                 ) : (
                   mapLegend(mainLegend, layers, toggleLayer, storyMode === 'edit', legendPlace)
@@ -2561,9 +2590,6 @@ export function StoryView({
           document.body,
         )
       : null}
-    {annotationPickerOpen ? (
-      <StoryAnnotationModal onStart={(tool) => startAnnotationDrawing(tool)} onClose={() => setAnnotationPickerOpen(false)} />
-    ) : null}
     {comparisonPickerOpen ? (
       <StoryComparisonModal
         options={comparisonMapOptions}

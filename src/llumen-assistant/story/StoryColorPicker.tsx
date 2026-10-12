@@ -13,11 +13,17 @@ export function ColorPicker({
   label,
   value,
   variant,
+  swatches: paletteSwatches,
+  customOnly = false,
   onChange,
 }: {
   label: string
   value: string
   variant: 'swatch' | 'chip' | 'palette'
+  /** Replaces the default palette row; a custom color outside it is added after these. */
+  swatches?: string[]
+  /** The trigger opens the custom color picker straight away instead of the swatch grid. */
+  customOnly?: boolean
   onChange: (value: string) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -73,6 +79,10 @@ export function ColorPicker({
       setCustomOpen(false)
       return
     }
+    if (customOnly) {
+      setCustomOpen(true)
+      return
+    }
     syncPosition()
     setOpen(true)
   }
@@ -82,7 +92,12 @@ export function ColorPicker({
   const expanded = open || customOpen
 
   const swatchStyle = { '--swatch': value } as CSSProperties
-  const palette = PALETTE_SWATCHES.includes(value) ? PALETTE_SWATCHES : [...PALETTE_SWATCHES.slice(0, -1), value]
+  const paletteBase = paletteSwatches ?? PALETTE_SWATCHES
+  const palette = paletteBase.some((swatch) => swatch.toLowerCase() === value.toLowerCase())
+    ? paletteBase
+    : paletteSwatches
+      ? [...paletteBase, value]
+      : [...paletteBase.slice(0, -1), value]
 
   return (
     <>
@@ -92,10 +107,10 @@ export function ColorPicker({
             <button
               key={swatch}
               type="button"
-              className={`${styles.colorDot}${swatch === value ? ` ${styles.colorDotSelected}` : ''}`}
+              className={`${styles.colorDot}${swatch.toLowerCase() === value.toLowerCase() ? ` ${styles.colorDotSelected}` : ''}`}
               style={{ '--swatch': swatch } as CSSProperties}
               aria-label={swatch.toUpperCase()}
-              aria-pressed={swatch === value}
+              aria-pressed={swatch.toLowerCase() === value.toLowerCase()}
               onClick={() => onChange(swatch)}
             />
           ))}

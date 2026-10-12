@@ -1,42 +1,41 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowCounterClockwise,
-  ArrowLeft,
   ArrowUpRight,
   Circle,
+  DotsSixVertical,
+  DotsThree,
   Eye,
   EyeSlash,
-  Info,
   LineSegments,
-  MapPin,
+  MapPinSimple,
   PencilSimple,
-  Plus,
   Polygon,
   Rectangle,
   Trash,
 } from '@phosphor-icons/react'
 import { ColorPicker } from './StoryColorPicker'
-import { Field, Segmented, Slider } from './StoryBackgroundSettings'
+import { Slider } from './StoryBackgroundSettings'
 import {
+  ANNOTATION_TOOLS,
   annotationTool,
   contextSummary,
-  MARKER_SHAPES,
   minimumPoints,
-  STROKE_STYLES,
-  STROKE_WIDTHS,
+  shapeMeasurements,
   type AnnotationStyle,
   type AnnotationTool,
-  type AnnotationValidity,
   type MapAnnotationItem,
 } from './storyMapAnnotations'
 import settings from './StoryBackground.module.css'
 import styles from './StoryAnnotations.module.css'
 
-export type AnnotationDrawingState = { tool: AnnotationTool; points: number; redrawId: string | null }
+export type AnnotationDrawingState = { tool: AnnotationTool; points: number }
+
+export type AnnotationPatch = Partial<Pick<MapAnnotationItem, 'visible' | 'opacity'>> & { style?: Partial<AnnotationStyle> }
 
 const TOOL_ICONS: Record<AnnotationTool, (size: number) => ReactNode> = {
-  marker: (size) => <MapPin size={size} weight="fill" aria-hidden />,
+  marker: (size) => <MapPinSimple size={size} weight="bold" aria-hidden />,
   line: (size) => <LineSegments size={size} weight="bold" aria-hidden />,
   arrow: (size) => <ArrowUpRight size={size} weight="bold" aria-hidden />,
   polygon: (size) => <Polygon size={size} weight="bold" aria-hidden />,
@@ -44,337 +43,321 @@ const TOOL_ICONS: Record<AnnotationTool, (size: number) => ReactNode> = {
   circle: (size) => <Circle size={size} weight="bold" aria-hidden />,
 }
 
-const STATE_LABELS = { valid: 'Valid', changed: 'Changed', invalid: 'Invalid' }
-
-const STATE_CLASS = { valid: styles.stateValid, changed: styles.stateChanged, invalid: styles.stateInvalid }
-
 const DRAW_STEP: Record<AnnotationTool, (points: number) => string> = {
   marker: () => 'Click the map to place the marker.',
-  line: (points) => (points === 0 ? 'Click the map to start the line.' : 'Click to add a point.'),
-  arrow: (points) => (points === 0 ? 'Click where the arrow starts.' : 'Click to add a point; the arrow ends at the last one.'),
-  polygon: (points) => (points < 3 ? 'Click to add corners.' : 'Click the first corner to close the area.'),
-  rectangle: (points) => (points === 0 ? 'Click one corner of the rectangle.' : 'Click the opposite corner.'),
+  line: (points) => (points === 0 ? 'Click the map to start the line.' : 'Click to add a point; click the last one again to finish.'),
+  arrow: (points) =>
+    points === 0 ? 'Click where the arrow starts.' : 'Click to add a point; click the last one again to finish.',
+  polygon: (points) => (points < 3 ? 'Click to add corners.' : 'Connect to the first corner to close the shape.'),
+  rectangle: (points) =>
+    points === 0 ? 'Click one corner of the rectangle.' : 'Click the opposite corner. Hold Shift for a square.',
   circle: (points) => (points === 0 ? 'Click the centre of the circle.' : 'Click to set the radius.'),
 }
 
-function formatMeters(value: number) {
-  return value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 2)} km` : `${Math.round(value)} m`
+const EDIT_HINT: Record<AnnotationTool, string> = {
+  marker: 'Drag the point to move the marker.',
+  line: 'Drag the points to reshape the line.',
+  arrow: 'Drag the points to reshape the arrow.',
+  polygon: 'Drag the corners to reshape the area.',
+  rectangle: 'Drag a corner to resize. Hold Shift for a square.',
+  circle: 'Drag the centre to move it, or the edge point to resize.',
 }
 
-function textPlaceholder(tool: AnnotationTool) {
-  return tool === 'marker' ? 'Shown in a tooltip above the marker' : 'Shown in a pill at the centre'
+function rowMeta(item: MapAnnotationItem) {
+  const measured = shapeMeasurements(item.tool, item.geometry, item.circle).join(' · ')
+  if (measured) return measured
+  if (item.style.text) return item.style.text
+  return item.context.anchor === 'feature' ? contextSummary(item.context) : 'Point on the map'
 }
 
 type PanelProps = {
   items: MapAnnotationItem[]
-  validity: Record<string, AnnotationValidity>
   selectedId: string | null
   editable: boolean
   drawing: AnnotationDrawingState | null
-  onAdd: () => void
-  onSelect: (id: string | null) => void
-  onChange: (id: string, patch: Partial<Pick<MapAnnotationItem, 'name' | 'visible'>> & { style?: Partial<AnnotationStyle> }) => void
-  onDelete: (id: string) => void
-  onRedraw: (id: string) => void
+  editingId: string | null
+  onStartDrawing: (tool: AnnotationTool) => void
   onFinishDrawing: () => void
   onUndoDrawing: () => void
   onCancelDrawing: () => void
+  onSelect: (id: string | null) => void
+  onChange: (id: string, patch: AnnotationPatch) => void
+  onDelete: (id: string) => void
+  onEdit: (id: string) => void
+  onFinishEditing: () => void
+  onCancelEditing: () => void
+  onReorder: (from: number, to: number) => void
 }
 
-function StateChip({ validity }: { validity: AnnotationValidity }) {
+function ToolBar({ onStart }: { onStart: (tool: AnnotationTool) => void }) {
   return (
-    <span className={`${styles.stateChip} ${STATE_CLASS[validity.state]}`}>
-      <i aria-hidden />
-      {STATE_LABELS[validity.state]}
-    </span>
-  )
-}
-
-const CONTEXT_TIP_GAP = 8
-
-/** Status at a glance; the info icon reveals what the annotation refers to and why it has that status. */
-function DataContext({ item, validity }: { item: MapAnnotationItem; validity: AnnotationValidity | undefined }) {
-  const tipId = useId()
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const [anchor, setAnchor] = useState<DOMRect | null>(null)
-  const open = () => setAnchor(buttonRef.current?.getBoundingClientRect() ?? null)
-  const close = () => setAnchor(null)
-
-  useEffect(() => {
-    if (!anchor) return
-    window.addEventListener('scroll', close, true)
-    window.addEventListener('resize', close)
-    return () => {
-      window.removeEventListener('scroll', close, true)
-      window.removeEventListener('resize', close)
-    }
-  }, [anchor])
-
-  const refersLabel =
-    item.context.anchor === 'feature' ? 'Pinned to' : item.geometry.type === 'Polygon' ? 'Covers' : 'Refers to'
-
-  return (
-    <div className={styles.context}>
-      <span className={styles.contextTitle}>Data context</span>
-      {validity ? <StateChip validity={validity} /> : null}
-      <button
-        ref={buttonRef}
-        type="button"
-        className={styles.contextInfoBtn}
-        aria-label="Data context details"
-        aria-describedby={anchor ? tipId : undefined}
-        onMouseEnter={open}
-        onMouseLeave={close}
-        onFocus={open}
-        onBlur={close}
-      >
-        <Info size={16} weight="regular" aria-hidden />
-      </button>
-      {anchor
-        ? createPortal(
-            <div
-              id={tipId}
-              role="tooltip"
-              className={styles.contextTip}
-              style={{ right: window.innerWidth - anchor.right, bottom: window.innerHeight - anchor.top + CONTEXT_TIP_GAP }}
-            >
-              {validity ? <p className={styles.contextDetail}>{validity.detail}</p> : null}
-              <div className={styles.metaRow}>
-                <span>{refersLabel}</span>
-                <b>{contextSummary(item.context)}</b>
-              </div>
-              <div className={styles.metaRow}>
-                <span>Drawn on</span>
-                <b>{item.context.dataLabel}</b>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+    <div className={styles.toolbar} role="toolbar" aria-label="Add annotation">
+      {ANNOTATION_TOOLS.map((tool) => (
+        <button
+          key={tool.id}
+          type="button"
+          className={styles.toolBtn}
+          aria-label={`Draw ${tool.label.toLowerCase()}`}
+          title={tool.label}
+          onClick={() => onStart(tool.id)}
+        >
+          {TOOL_ICONS[tool.id](18)}
+        </button>
+      ))}
     </div>
   )
 }
 
-function DrawingView({
+function DrawingBar({
   drawing,
-  redrawing,
   onFinish,
   onUndo,
   onCancel,
 }: {
   drawing: AnnotationDrawingState
-  redrawing: string | null
   onFinish: () => void
   onUndo: () => void
   onCancel: () => void
 }) {
   const tool = annotationTool(drawing.tool)
   const multiPoint = drawing.tool === 'line' || drawing.tool === 'arrow' || drawing.tool === 'polygon'
-  const canFinish = drawing.points >= minimumPoints(drawing.tool)
+  const finishable = (drawing.tool === 'line' || drawing.tool === 'arrow') && drawing.points >= minimumPoints(drawing.tool)
   return (
-    <div className={styles.drawing} role="status" aria-live="polite">
-      <div className={styles.drawingHead}>
-        <span className={styles.drawingIcon}>{TOOL_ICONS[drawing.tool](16)}</span>
-        <span className={styles.drawingTitle}>{redrawing ? `Redrawing ${redrawing}` : `Drawing ${tool.label.toLowerCase()}`}</span>
-        <span className={styles.drawingBadge}>2D</span>
+    <div className={styles.status} role="status" aria-live="polite">
+      <div className={styles.statusHead}>
+        <span className={styles.statusIcon}>{TOOL_ICONS[drawing.tool](16)}</span>
+        <span className={styles.statusTitle}>Drawing {tool.label.toLowerCase()}</span>
+        <span className={styles.statusBadge}>2D</span>
       </div>
-      <p className={styles.drawingStep}>{DRAW_STEP[drawing.tool](drawing.points)}</p>
-      <p className={styles.drawingHint}>
-        {multiPoint ? 'Enter finishes · Backspace removes the last point · Esc cancels' : 'Esc cancels'}
-        {drawing.tool === 'marker' || drawing.tool === 'line' || drawing.tool === 'arrow'
-          ? '. Points snap to columns and junctions.'
-          : ''}
-      </p>
-      <div className={styles.drawingActions}>
-        <button type="button" className={settings.pillBtn} onClick={onCancel}>
+      <p className={styles.statusStep}>{DRAW_STEP[drawing.tool](drawing.points)}</p>
+      <div className={styles.statusActions}>
+        {multiPoint ? (
+          <button
+            type="button"
+            className={styles.statusIconBtn}
+            aria-label="Undo last point"
+            title="Undo last point"
+            disabled={drawing.points === 0}
+            onClick={onUndo}
+          >
+            <ArrowCounterClockwise size={16} weight="bold" aria-hidden />
+          </button>
+        ) : null}
+        <button type="button" className={`${settings.pillBtn} ${styles.cancelBtn}`} onClick={onCancel}>
           Cancel
         </button>
-        {multiPoint ? (
-          <>
-            <button type="button" className={settings.pillBtn} disabled={drawing.points === 0} onClick={onUndo}>
-              <ArrowCounterClockwise size={14} weight="bold" aria-hidden />
-              Undo
-            </button>
-            <button type="button" className={styles.primaryPill} disabled={!canFinish} onClick={onFinish}>
-              Finish
-            </button>
-          </>
+        {finishable ? (
+          <button type="button" className={styles.primaryPill} onClick={onFinish}>
+            Finish
+          </button>
         ) : null}
       </div>
     </div>
   )
 }
 
-function Properties({
-  item,
-  validity,
-  onBack,
-  onChange,
-  onDelete,
-  onRedraw,
-}: {
-  item: MapAnnotationItem
-  validity: AnnotationValidity | undefined
-  onBack: () => void
-  onChange: PanelProps['onChange']
-  onDelete: () => void
-  onRedraw: () => void
-}) {
-  const { style, tool } = item
-  const setStyle = (patch: Partial<AnnotationStyle>) => onChange(item.id, { style: patch })
-  const isArea = item.geometry.type === 'Polygon'
-  const isLine = item.geometry.type === 'LineString'
+function EditingBar({ item, onDone, onCancel }: { item: MapAnnotationItem; onDone: () => void; onCancel: () => void }) {
   return (
-    <div className={styles.properties}>
-      <div className={styles.propertiesHead}>
-        <button type="button" className={styles.circleBtn} aria-label="Back to annotations" onClick={onBack}>
-          <ArrowLeft size={16} weight="bold" aria-hidden />
-        </button>
-        <input
-          className={styles.nameInput}
-          aria-label="Annotation name"
-          value={item.name}
-          onChange={(event) => onChange(item.id, { name: event.target.value })}
-        />
+    <div className={styles.status} role="status" aria-live="polite">
+      <div className={styles.statusHead}>
+        <span className={styles.statusIcon} style={{ color: item.style.color }}>
+          {TOOL_ICONS[item.tool](16)}
+        </span>
+        <span className={styles.statusTitle}>Editing {item.name}</span>
+        <span className={styles.statusBadge}>2D</span>
       </div>
-
-      <Field label="Text">
-        <textarea
-          className={styles.textInput}
-          rows={2}
-          aria-label="Annotation text"
-          placeholder={textPlaceholder(tool)}
-          value={style.text}
-          onChange={(event) => setStyle({ text: event.target.value })}
-        />
-      </Field>
-      <Field label="Color">
-        <ColorPicker label="Annotation color" value={style.color} variant="palette" onChange={(color) => setStyle({ color })} />
-      </Field>
-      {tool === 'marker' ? (
-        <Field label="Shape">
-          <Segmented
-            label="Marker shape"
-            value={style.markerShape}
-            options={MARKER_SHAPES}
-            onChange={(markerShape) => setStyle({ markerShape })}
-          />
-        </Field>
-      ) : null}
-      {isLine || isArea ? (
-        <>
-          <Field label={isArea ? 'Outline' : 'Width'}>
-            <Segmented
-              label={isArea ? 'Outline width' : 'Line width'}
-              value={style.strokeWidth}
-              options={STROKE_WIDTHS}
-              onChange={(strokeWidth) => setStyle({ strokeWidth })}
-            />
-          </Field>
-          <Field label="Style">
-            <Segmented
-              label="Line style"
-              value={style.dashed ? 'dashed' : 'solid'}
-              options={STROKE_STYLES}
-              onChange={(value) => setStyle({ dashed: value === 'dashed' })}
-            />
-          </Field>
-        </>
-      ) : null}
-      {isArea ? (
-        <Field label="Fill">
-          <Slider
-            label="Fill opacity"
-            value={style.fillOpacity}
-            min={0}
-            max={0.6}
-            step={0.02}
-            display={`${Math.round(style.fillOpacity * 100)}%`}
-            onChange={(fillOpacity) => setStyle({ fillOpacity })}
-          />
-        </Field>
-      ) : null}
-      {item.circle ? (
-        <div className={styles.metaRow}>
-          <span>Radius</span>
-          <b>{formatMeters(item.circle.radiusM)}</b>
-        </div>
-      ) : null}
-
-      <DataContext item={item} validity={validity} />
-
-      <div className={styles.propertiesActions}>
-        <button
-          type="button"
-          className={`${styles.circleBtn} ${styles.circleBtnDanger}`}
-          aria-label="Delete"
-          title="Delete"
-          onClick={onDelete}
-        >
-          <Trash size={16} weight="bold" aria-hidden />
+      <p className={styles.statusStep}>{EDIT_HINT[item.tool]}</p>
+      <div className={styles.statusActions}>
+        <button type="button" className={`${settings.pillBtn} ${styles.cancelBtn}`} onClick={onCancel}>
+          Cancel
         </button>
-        <button type="button" className={settings.pillBtn} onClick={onRedraw}>
-          <PencilSimple size={14} weight="bold" aria-hidden />
-          Redraw
-        </button>
-        <button type="button" className={`${styles.primaryPill} ${styles.saveBtn}`} onClick={onBack}>
-          Save
+        <button type="button" className={styles.primaryPill} onClick={onDone}>
+          Done
         </button>
       </div>
     </div>
   )
 }
 
-/** The Annotations tab of the Map Data panel: list, drawing status and the selected annotation's properties. */
+/** Primary, neutral, positive, negative, orange and purple; anything else comes from the + picker. */
+const ANNOTATION_SWATCHES = ['#70aeff', '#ffffff', '#7dcea0', '#f17474', '#f7a13b', '#c084fc']
+
+type Popover = { id: string; rect: DOMRect }
+
+const POPOVER_GAP = 6
+const POPOVER_WIDTH = 260
+const POPOVER_HEIGHT = 320
+
+function popoverStyle({ rect }: Popover): CSSProperties {
+  const left = Math.max(8, Math.min(rect.right - POPOVER_WIDTH, window.innerWidth - POPOVER_WIDTH - 8))
+  const below = window.innerHeight - rect.bottom
+  return below > POPOVER_HEIGHT + POPOVER_GAP + 8
+    ? { left, width: POPOVER_WIDTH, top: rect.bottom + POPOVER_GAP }
+    : { left, width: POPOVER_WIDTH, bottom: window.innerHeight - rect.top + POPOVER_GAP }
+}
+
+/** The color / opacity / text / delete menu for one layer, portaled so the panel doesn't clip it. */
+function LayerPopover({
+  popover,
+  item,
+  onChange,
+  onDelete,
+  onClose,
+}: {
+  popover: Popover
+  item: MapAnnotationItem
+  onChange: (patch: AnnotationPatch) => void
+  onDelete: () => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Element
+      // The color picker's own popovers are portaled too; clicks there belong to this menu.
+      if (ref.current?.contains(target) || target.closest?.('[role="dialog"], [data-layer-popover-trigger]')) return
+      onClose()
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopImmediatePropagation()
+      onClose()
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('resize', onClose)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('resize', onClose)
+    }
+  }, [onClose])
+
+  return createPortal(
+    <div
+      ref={ref}
+      className={styles.popover}
+      role="menu"
+      aria-label={`${item.name} options`}
+      style={popoverStyle(popover)}
+    >
+      <div className={styles.popoverSection}>
+        <span className={styles.popoverLabel}>Color</span>
+        <ColorPicker
+          label="Annotation color"
+          value={item.style.color}
+          variant="palette"
+          swatches={ANNOTATION_SWATCHES}
+          customOnly
+          onChange={(color) => onChange({ style: { color } })}
+        />
+      </div>
+      <div className={styles.popoverSection}>
+        <span className={styles.popoverLabel}>Opacity</span>
+        <Slider
+          label="Layer opacity"
+          value={item.opacity}
+          min={0}
+          max={1}
+          step={0.01}
+          display={`${Math.round(item.opacity * 100)}%`}
+          onChange={(opacity) => onChange({ opacity })}
+        />
+      </div>
+      <div className={styles.popoverSection}>
+        <span className={styles.popoverLabel}>Text</span>
+        <textarea
+          className={styles.textInput}
+          rows={2}
+          aria-label="Annotation text"
+          placeholder={item.tool === 'marker' ? 'Shown in a tooltip above the marker' : 'Shown in a pill at the centre'}
+          value={item.style.text}
+          onChange={(event) => onChange({ style: { text: event.target.value } })}
+        />
+      </div>
+      <div className={styles.popoverDivider} />
+      <button type="button" role="menuitem" className={styles.popoverDanger} onClick={onDelete}>
+        <Trash size={16} weight="regular" aria-hidden />
+        Delete
+      </button>
+    </div>,
+    document.body,
+  )
+}
+
+type Drag = { id: string; from: number; over: number; startY: number; dy: number; step: number }
+
+const LIST_GAP = 2
+
+/** The Annotations tab of the Map Data panel: the annotation layers, and the tools that draw new ones. */
 export function StoryAnnotationsPanel({
   items,
-  validity,
   selectedId,
   editable,
   drawing,
-  onAdd,
-  onSelect,
-  onChange,
-  onDelete,
-  onRedraw,
+  editingId,
+  onStartDrawing,
   onFinishDrawing,
   onUndoDrawing,
   onCancelDrawing,
+  onSelect,
+  onChange,
+  onDelete,
+  onEdit,
+  onFinishEditing,
+  onCancelEditing,
+  onReorder,
 }: PanelProps) {
-  if (drawing) {
-    const redrawing = drawing.redrawId ? (items.find((item) => item.id === drawing.redrawId)?.name ?? null) : null
-    return (
-      <div className={styles.body}>
-        <DrawingView
-          drawing={drawing}
-          redrawing={redrawing}
-          onFinish={onFinishDrawing}
-          onUndo={onUndoDrawing}
-          onCancel={onCancelDrawing}
-        />
-      </div>
-    )
+  const [popover, setPopover] = useState<Popover | null>(null)
+  const [drag, setDrag] = useState<Drag | null>(null)
+  const closePopover = useCallback(() => setPopover(null), [])
+  const popoverItem = popover ? items.find((item) => item.id === popover.id) : undefined
+  const editingItem = editingId ? items.find((item) => item.id === editingId) : undefined
+
+  const togglePopover = (id: string, button: HTMLElement) =>
+    setPopover((current) => (current?.id === id ? null : { id, rect: button.getBoundingClientRect() }))
+
+  const startDrag = (event: PointerEvent<HTMLElement>, id: string, from: number) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    const row = event.currentTarget.closest('li')
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setPopover(null)
+    setDrag({ id, from, over: from, startY: event.clientY, dy: 0, step: (row?.offsetHeight ?? 40) + LIST_GAP })
   }
 
-  const selected = editable ? items.find((item) => item.id === selectedId) : undefined
-  if (selected) {
-    return (
-      <div className={styles.body}>
-        <Properties
-          item={selected}
-          validity={validity[selected.id]}
-          onBack={() => onSelect(null)}
-          onChange={onChange}
-          onDelete={() => onDelete(selected.id)}
-          onRedraw={() => onRedraw(selected.id)}
-        />
-      </div>
-    )
+  const moveDrag = (event: PointerEvent<HTMLElement>) => {
+    if (!drag) return
+    const dy = event.clientY - drag.startY
+    const over = Math.max(0, Math.min(items.length - 1, drag.from + Math.round(dy / drag.step)))
+    setDrag({ ...drag, dy, over })
+  }
+
+  const endDrag = () => {
+    if (!drag) return
+    if (drag.over !== drag.from) onReorder(drag.from, drag.over)
+    setDrag(null)
+  }
+
+  const reorderByKey = (event: KeyboardEvent<HTMLElement>, index: number) => {
+    const to = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1 : null
+    if (to === null || to < 0 || to >= items.length) return
+    event.preventDefault()
+    onReorder(index, to)
+  }
+
+  const rowShift = (index: number) => {
+    if (!drag) return 0
+    if (index === drag.from) return drag.dy
+    if (drag.from < drag.over && index > drag.from && index <= drag.over) return -drag.step
+    if (drag.from > drag.over && index >= drag.over && index < drag.from) return drag.step
+    return 0
   }
 
   return (
-    <div className={styles.scroll}>
-      <div className={styles.body}>
+    <div className={styles.annotations}>
+      <div className={styles.scroll}>
         {items.length === 0 ? (
           <p className={styles.empty}>
             {editable
@@ -382,54 +365,123 @@ export function StoryAnnotationsPanel({
               : 'No annotations on this map.'}
           </p>
         ) : (
-          <ul className={styles.list}>
-            {items.map((item) => {
-              const state = validity[item.id]
+          <ul className={styles.list} aria-label="Annotation layers">
+            {items.map((item, index) => {
+              const selected = item.id === selectedId
+              const editing = item.id === editingId
+              const dragged = drag?.id === item.id
+              const shift = rowShift(index)
               return (
-                <li key={item.id} className={`${styles.row}${item.visible ? '' : ` ${styles.rowHidden}`}`}>
+                <li
+                  key={item.id}
+                  className={[
+                    styles.row,
+                    selected || editing ? styles.rowSelected : '',
+                    item.visible ? '' : styles.rowHidden,
+                    dragged ? styles.rowDragging : '',
+                    drag && !dragged ? styles.rowShifting : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  style={shift ? { transform: `translateY(${shift}px)` } : undefined}
+                >
+                  {editable ? (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className={styles.dragHandle}
+                      aria-label={`Reorder ${item.name}`}
+                      title="Drag to reorder"
+                      onPointerDown={(event) => startDrag(event, item.id, index)}
+                      onPointerMove={moveDrag}
+                      onPointerUp={endDrag}
+                      onPointerCancel={() => setDrag(null)}
+                      onKeyDown={(event) => reorderByKey(event, index)}
+                    >
+                      <DotsSixVertical size={14} weight="bold" aria-hidden />
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     className={styles.rowMain}
                     disabled={!editable}
-                    onClick={() => onSelect(item.id)}
-                    aria-label={editable ? `Edit ${item.name}` : item.name}
+                    aria-pressed={editable ? selected : undefined}
+                    aria-label={item.name}
+                    onClick={() => onSelect(selected ? null : item.id)}
                   >
                     <span className={styles.itemIcon} style={{ color: item.style.color }}>
-                      {TOOL_ICONS[item.tool](16)}
+                      {TOOL_ICONS[item.tool](14)}
                     </span>
                     <span className={styles.rowCopy}>
                       <span className={styles.rowName}>{item.name}</span>
-                      <span className={styles.rowMeta}>{item.style.text || contextSummary(item.context)}</span>
+                      <span className={styles.rowMeta}>{rowMeta(item)}</span>
                     </span>
-                    {state && state.state !== 'valid' ? (
-                      <span
-                        className={`${styles.rowState} ${STATE_CLASS[state.state]}`}
-                        title={state.detail}
-                        aria-label={STATE_LABELS[state.state]}
-                      />
-                    ) : null}
                   </button>
                   <button
                     type="button"
                     className={`${styles.iconBtn}${item.visible ? '' : ` ${styles.iconBtnOff}`}`}
                     aria-label={`${item.visible ? 'Hide' : 'Show'} ${item.name}`}
-                    aria-pressed={item.visible}
+                    title={item.visible ? 'Hide' : 'Show'}
+                    aria-pressed={!item.visible}
                     onClick={() => onChange(item.id, { visible: !item.visible })}
                   >
                     {item.visible ? <Eye size={16} weight="regular" aria-hidden /> : <EyeSlash size={16} weight="regular" aria-hidden />}
                   </button>
+                  {editable ? (
+                    <>
+                      <button
+                        type="button"
+                        className={`${styles.iconBtn}${editing ? ` ${styles.iconBtnActive}` : ''}`}
+                        aria-label={`Edit ${item.name} shape`}
+                        title="Edit shape"
+                        aria-pressed={editing}
+                        onClick={() => (editing ? onFinishEditing() : onEdit(item.id))}
+                      >
+                        <PencilSimple size={16} weight="regular" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        data-layer-popover-trigger
+                        className={`${styles.iconBtn}${popover?.id === item.id ? ` ${styles.iconBtnActive}` : ''}`}
+                        aria-label={`More options for ${item.name}`}
+                        title="More options"
+                        aria-haspopup="menu"
+                        aria-expanded={popover?.id === item.id}
+                        onClick={(event) => togglePopover(item.id, event.currentTarget)}
+                      >
+                        <DotsThree size={16} weight="bold" aria-hidden />
+                      </button>
+                    </>
+                  ) : null}
                 </li>
               )
             })}
           </ul>
         )}
-        {editable ? (
-          <button type="button" className={styles.addBtn} onClick={onAdd}>
-            <Plus size={16} weight="bold" aria-hidden />
-            Annotation
-          </button>
-        ) : null}
       </div>
+      {editable ? (
+        <div className={styles.footer}>
+          {drawing ? (
+            <DrawingBar drawing={drawing} onFinish={onFinishDrawing} onUndo={onUndoDrawing} onCancel={onCancelDrawing} />
+          ) : editingItem ? (
+            <EditingBar item={editingItem} onDone={onFinishEditing} onCancel={onCancelEditing} />
+          ) : (
+            <ToolBar onStart={onStartDrawing} />
+          )}
+        </div>
+      ) : null}
+      {popover && popoverItem ? (
+        <LayerPopover
+          popover={popover}
+          item={popoverItem}
+          onChange={(patch) => onChange(popoverItem.id, patch)}
+          onDelete={() => {
+            setPopover(null)
+            onDelete(popoverItem.id)
+          }}
+          onClose={closePopover}
+        />
+      ) : null}
     </div>
   )
 }

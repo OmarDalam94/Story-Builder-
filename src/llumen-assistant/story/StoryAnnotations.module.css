@@ -1,100 +1,3 @@
-/* Add-annotation modal */
-
-.modal {
-  width: min(760px, calc(100vw - 64px));
-}
-
-.modalSubtitle {
-  margin: 4px 0 0;
-  color: var(--lc-text-tertiary);
-  font: var(--lc-font-small);
-}
-
-.toolGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  padding: var(--space-2xl);
-}
-
-.toolCard {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 0;
-  padding: 8px 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-xl);
-  background: rgba(255, 255, 255, 0.03);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color 140ms ease,
-    background 140ms ease;
-}
-
-.toolCard:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.toolCardSelected {
-  border-color: #70aeff;
-  background: rgba(112, 174, 255, 0.08);
-}
-
-.toolCard:focus-visible {
-  outline: 2px solid #70aeff;
-  outline-offset: 2px;
-}
-
-.toolPreview {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  aspect-ratio: 120 / 64;
-  border-radius: 10px;
-  background: #12161c;
-  color: rgba(255, 255, 255, 0.72);
-  transition: color 140ms ease;
-}
-
-.toolCard:hover .toolPreview,
-.toolCardSelected .toolPreview {
-  color: #70aeff;
-}
-
-.toolCopy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0 4px;
-}
-
-.toolName {
-  color: #fff;
-  font: var(--lc-font-small);
-  font-weight: var(--lc-weight-medium);
-}
-
-.toolDesc {
-  color: rgba(255, 255, 255, 0.62);
-  font: var(--lc-font-small);
-}
-
-.modalFooter {
-  justify-content: flex-end;
-}
-
-.modalNote {
-  flex: 1;
-  min-width: 0;
-  color: var(--lc-text-tertiary);
-  font: var(--lc-font-small);
-}
-
 /* Map Data tabs */
 
 .tabs {
@@ -146,10 +49,16 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Annotations tab. The scroller is full-bleed so its thumb hugs the panel edge; content carries the inset. */
+/* Annotations tab: the layer list scrolls full-bleed so its thumb hugs the panel edge; rows carry the inset. */
+
+.annotations {
+  display: flex;
+  flex-direction: column;
+}
 
 .scroll {
-  max-height: min(48vh, 440px);
+  max-height: min(40vh, 360px);
+  padding: 10px 0 0;
   overflow-y: auto;
   overflow-y: overlay;
   overscroll-behavior: contain;
@@ -174,15 +83,9 @@
   background: var(--lc-scrollbar-thumb-hover);
 }
 
-.body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px 16px 16px;
-}
-
 .empty {
   margin: 0;
+  padding: 4px 16px 2px;
   color: rgba(255, 255, 255, 0.56);
   font-size: 12px;
   line-height: 18px;
@@ -192,35 +95,80 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 0 -8px;
-  padding: 0;
+  margin: 0;
+  padding: 0 8px;
   list-style: none;
 }
 
 .row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding-right: 8px;
+  gap: 2px;
+  padding: 0 4px 0 0;
   border-radius: 10px;
+  background: transparent;
 }
 
 .row:hover {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.rowSelected,
+.rowSelected:hover {
+  background: rgba(112, 174, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(112, 174, 255, 0.32);
+}
+
 .rowHidden .rowMain {
   opacity: 0.45;
+}
+
+.rowShifting {
+  transition: transform 160ms ease;
+}
+
+.rowDragging {
+  z-index: 2;
+  background: rgba(40, 46, 52, 0.96);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+}
+
+.dragHandle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 40px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.36);
+  cursor: grab;
+  touch-action: none;
+}
+
+.dragHandle:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.rowDragging .dragHandle {
+  color: #fff;
+  cursor: grabbing;
+}
+
+.dragHandle:focus-visible {
+  outline: 2px solid #70aeff;
+  outline-offset: -2px;
 }
 
 .rowMain {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   margin: 0;
-  padding: 6px 8px;
+  padding: 6px 4px 6px 0;
   border: none;
   background: transparent;
   color: #fff;
@@ -230,6 +178,7 @@
 }
 
 .rowMain:disabled {
+  padding-left: 8px;
   cursor: default;
 }
 
@@ -238,9 +187,9 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
   background: color-mix(in srgb, currentColor 16%, transparent);
 }
 
@@ -266,16 +215,9 @@
 
 .rowMeta {
   color: rgba(255, 255, 255, 0.5);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.rowState {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--state-color);
+  font-size: 11px;
+  line-height: 15px;
+  font-variant-numeric: tabular-nums;
 }
 
 .iconBtn {
@@ -283,8 +225,8 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   margin: 0;
   padding: 0;
   border: none;
@@ -294,8 +236,9 @@
   cursor: pointer;
 }
 
-.iconBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+.iconBtn:hover,
+.iconBtnActive {
+  background: rgba(255, 255, 255, 0.1);
   color: #fff;
 }
 
@@ -303,66 +246,91 @@
   color: rgba(255, 255, 255, 0.36);
 }
 
-.addBtn {
+.iconBtn:focus-visible {
+  outline: 2px solid #70aeff;
+  outline-offset: -2px;
+}
+
+/* Tools and the drawing / editing status replace each other in the footer. */
+
+.footer {
+  padding: 12px 16px 16px;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(34, 42, 42, 0.5);
+}
+
+.toolBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  width: 100%;
+  height: 32px;
   margin: 0;
-  padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 40px;
-  background: rgba(34, 42, 42, 0.5);
-  color: #fff;
-  font: inherit;
-  font-size: 14px;
-  line-height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
 }
 
-.addBtn:hover {
+.toolBtn:hover {
   background: rgba(132, 220, 255, 0.16);
+  color: #fff;
 }
 
-/* Drawing status */
+.toolBtn:focus-visible {
+  outline: 2px solid #70aeff;
+  outline-offset: -2px;
+}
 
-.drawing {
+.status {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.drawingHead {
+.statusHead {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.drawingIcon {
+.statusIcon {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 8px;
-  background: rgba(112, 174, 255, 0.16);
+  background: color-mix(in srgb, currentColor 16%, transparent);
   color: #70aeff;
 }
 
-.drawingTitle {
+.statusTitle {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   color: #fff;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
-  line-height: 20px;
+  line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.drawingBadge {
+.statusBadge {
   padding: 1px 7px;
   border: 1px solid rgba(112, 174, 255, 0.3);
   border-radius: 999px;
@@ -372,92 +340,30 @@
   line-height: 16px;
 }
 
-.drawingStep {
+.statusStep {
   margin: 0;
-  color: #fff;
-  font-size: 13px;
-  line-height: 18px;
-}
-
-.drawingHint {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.64);
   font-size: 12px;
-  line-height: 16px;
+  line-height: 17px;
 }
 
-.drawingActions,
-.propertiesActions {
+.statusActions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  padding-top: 4px;
 }
 
-.drawingActions > :first-child {
-  margin-right: auto;
-}
-
-.propertiesActions > :first-child {
-  margin-right: auto;
-}
-
-.propertiesActions > button {
-  height: 32px;
-}
-
-.drawingActions button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.primaryPill {
-  display: inline-flex;
-  align-items: center;
+.cancelBtn {
+  flex: 1;
   justify-content: center;
-  height: 28px;
-  margin: 0;
-  padding: 0 14px;
-  border: none;
-  border-radius: 999px;
-  background: #70aeff;
-  color: #0b1220;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
 }
 
-.primaryPill:hover:not(:disabled) {
-  filter: brightness(1.06);
-}
-
-.saveBtn {
-  padding: 0 20px;
-}
-
-/* Properties */
-
-.properties {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.propertiesHead {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.circleBtn {
+.statusIconBtn {
   display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
-  box-sizing: border-box;
   width: 32px;
   height: 32px;
   margin: 0;
@@ -465,204 +371,133 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 50%;
   background: rgba(34, 42, 42, 0.5);
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
-  transition:
-    background 0.12s,
-    color 0.12s;
 }
 
-.circleBtn:hover {
+.statusIconBtn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
 
-.circleBtnDanger {
-  color: #ff8a8a;
+.statusIconBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
-.circleBtnDanger:hover {
-  background: rgba(190, 65, 65, 0.24);
-  color: #ffb0b0;
-}
-
-.circleBtn:focus-visible {
-  outline: 2px solid #70aeff;
-  outline-offset: 2px;
-}
-
-.nameInput,
-.textInput {
-  box-sizing: border-box;
-  min-width: 0;
-  margin: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: #fff;
-  font: inherit;
-  outline: none;
-}
-
-.nameInput {
-  flex: 1;
-  height: 30px;
-  padding: 0 8px;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.nameInput:hover {
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.nameInput:focus,
-.textInput:focus {
-  border-color: #70aeff;
-}
-
-.textInput {
-  width: 100%;
-  padding: 8px 10px;
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(34, 42, 42, 0.5);
-  font-size: 13px;
-  line-height: 18px;
-  resize: none;
-}
-
-.textInput::placeholder {
-  color: rgba(255, 255, 255, 0.36);
-}
-
-.metaRow {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  color: rgba(255, 255, 255, 0.56);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.metaRow > span {
-  flex: none;
-}
-
-.metaRow b {
-  min-width: 0;
-  color: #fff;
-  font-weight: 500;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
-
-.context {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 8px 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.contextTitle {
-  flex: 1;
-  min-width: 0;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.contextInfoBtn {
+.primaryPill {
   display: inline-flex;
-  flex: none;
+  flex: 1;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  height: 32px;
   margin: 0;
-  padding: 0;
+  padding: 0 14px;
   border: none;
   border-radius: 999px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.6);
-  cursor: help;
+  background: #70aeff;
+  color: #0b1220;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-.contextInfoBtn:hover,
-.contextInfoBtn:focus-visible {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  outline: none;
+.primaryPill:hover {
+  filter: brightness(1.06);
 }
 
-/* Portaled to the body (fixed) so the panel's scroller doesn't clip it. */
-.contextTip {
+/* Layer popovers (opacity, and the color / text / delete menu), portaled to the body. */
+
+.popover {
   position: fixed;
-  z-index: 10070;
+  z-index: 10060;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   box-sizing: border-box;
-  width: 260px;
-  padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  background: rgba(34, 42, 42, 0.92);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.36);
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 12px;
-  line-height: 18px;
-  pointer-events: none;
-  backdrop-filter: blur(30px);
-  -webkit-backdrop-filter: blur(30px);
-  animation: contextTipIn 140ms ease-out both;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(26, 30, 34, 0.86);
+  box-shadow:
+    0 12px 16px -4px rgba(10, 13, 18, 0.32),
+    0 4px 6px -2px rgba(10, 13, 18, 0.2);
+  color: #fff;
+  backdrop-filter: blur(30px) saturate(140%);
+  -webkit-backdrop-filter: blur(30px) saturate(140%);
+  animation: popoverIn 140ms ease-out both;
 }
 
-@keyframes contextTipIn {
+@keyframes popoverIn {
   from {
     opacity: 0;
     translate: 0 4px;
   }
 }
 
-.contextDetail {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 12px;
-  line-height: 17px;
+.popoverSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.stateChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--state-color) 16%, transparent);
-  color: var(--state-color);
-  font-size: 11px;
-  font-weight: 600;
+.popoverLabel {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-weight: 500;
   line-height: 16px;
 }
 
-.stateChip i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
+.popoverDivider {
+  height: 1px;
+  margin: 0 -12px;
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.stateValid {
-  --state-color: #5fd39a;
+.popoverDanger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  margin: -4px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #f17474;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
 }
 
-.stateChanged {
-  --state-color: #ffb547;
+.popoverDanger:hover {
+  background: rgba(190, 65, 65, 0.2);
 }
 
-.stateInvalid {
-  --state-color: #ff6b6b;
+.textInput {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(34, 42, 42, 0.5);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  outline: none;
+  resize: none;
+}
+
+.textInput:focus {
+  border-color: #70aeff;
+}
+
+.textInput::placeholder {
+  color: rgba(255, 255, 255, 0.36);
 }

@@ -41,13 +41,13 @@ export const ANNOTATION_TOOLS: AnnotationToolOption[] = [
     id: 'polygon',
     label: 'Polygon',
     description: 'Highlights an arbitrary geographic area.',
-    hint: 'Click to add corners. Click the first corner or press Enter to close the area.',
+    hint: 'Click to add corners. Connect the last corner to the first one to close the area.',
   },
   {
     id: 'rectangle',
     label: 'Rectangle',
     description: 'Highlights a rectangular geographic area.',
-    hint: 'Click one corner, then click the opposite corner.',
+    hint: 'Click one corner, then click the opposite corner. Hold Shift for a square.',
   },
   {
     id: 'circle',
@@ -66,46 +66,15 @@ export function minimumPoints(tool: AnnotationTool) {
   return tool === 'polygon' ? 3 : tool === 'line' || tool === 'arrow' ? 2 : 1
 }
 
-export type MarkerShape = 'pin' | 'dot' | 'square' | 'diamond'
-
-export const MARKER_SHAPES: { id: MarkerShape; label: string }[] = [
-  { id: 'pin', label: 'Pin' },
-  { id: 'dot', label: 'Dot' },
-  { id: 'square', label: 'Square' },
-  { id: 'diamond', label: 'Diamond' },
-]
-
-export const STROKE_WIDTHS: { id: number; label: string }[] = [
-  { id: 2, label: 'Thin' },
-  { id: 3, label: 'Regular' },
-  { id: 5, label: 'Bold' },
-]
-
-export const STROKE_STYLES: { id: 'solid' | 'dashed'; label: string }[] = [
-  { id: 'solid', label: 'Solid' },
-  { id: 'dashed', label: 'Dashed' },
-]
-
 export type AnnotationStyle = {
   color: string
   /** Shown as a tooltip above markers, or in a pill at the centre of other shapes. */
   text: string
-  markerShape: MarkerShape
-  strokeWidth: number
-  dashed: boolean
-  fillOpacity: number
 }
 
 export const DEFAULT_ANNOTATION_COLOR = '#70aeff'
 
-export const DEFAULT_ANNOTATION_STYLE: AnnotationStyle = {
-  color: DEFAULT_ANNOTATION_COLOR,
-  text: '',
-  markerShape: 'pin',
-  strokeWidth: 3,
-  dashed: false,
-  fillOpacity: 0.18,
-}
+export const DEFAULT_ANNOTATION_STYLE: AnnotationStyle = { color: DEFAULT_ANNOTATION_COLOR, text: '' }
 
 export type AnnotationGeometry =
   | { type: 'Point'; coordinates: LngLat }
@@ -138,6 +107,8 @@ export type MapAnnotationItem = {
   circle?: AnnotationCircle
   style: AnnotationStyle
   visible: boolean
+  /** Layer opacity, 0–1; applies to the whole annotation including its label. */
+  opacity: number
   context: AnnotationDataContext
 }
 
@@ -234,18 +205,6 @@ export function labelAnchor(item: Pick<MapAnnotationItem, 'geometry' | 'circle'>
   return item.circle?.center ?? ringCentroid(geometry.coordinates[0].slice(0, -1))
 }
 
-function mercator([lng, lat]: LngLat) {
-  const sin = Math.sin(rad(lat))
-  return { x: (lng + 180) / 360, y: 0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI) }
-}
-
-/** Clockwise degrees from north for the direction a → b, as Mapbox icon rotation expects. */
-export function headingDeg(a: LngLat, b: LngLat) {
-  const from = mercator(a)
-  const to = mercator(b)
-  return (Math.atan2(to.x - from.x, from.y - to.y) * 180) / Math.PI
-}
-
 function featureCoordinates(ref: FeatureRef): LngLat {
   const [lng, lat] = ref.layer === 'columns' ? DEMO_COLUMNS[ref.index] : DEMO_JUNCTIONS[ref.index]
   return [lng, lat]
@@ -310,12 +269,13 @@ export function createAnnotation(
     circle: shape.circle,
     style: { ...DEFAULT_ANNOTATION_STYLE, color },
     visible: true,
+    opacity: 1,
     context: annotationContext({ ...shape, geometry }, data, dataLabel),
   }
 }
 
-/** Swaps in a redrawn shape, keeping the annotation's identity and style. */
-export function redrawAnnotation(
+/** Swaps in an edited shape, keeping the annotation's identity, style and layer settings. */
+export function reshapeAnnotation(
   item: MapAnnotationItem,
   shape: DrawnShape,
   data: AnnotationData,
@@ -379,39 +339,133 @@ export function annotationValidity(item: MapAnnotationItem, data: AnnotationData
   }
 }
 
+const M_PER_DEG = (Math.PI * EARTH_RADIUS_M) / 180
+
+/** Metres east and north of `origin`; accurate enough at annotation scale. */
+export function toLocal(origin: LngLat, [lng, lat]: LngLat) {
+  return { x: (lng - origin[0]) * M_PER_DEG * Math.cos(rad(origin[1])), y: (lat - origin[1]) * M_PER_DEG }
+}
+
+export function fromLocal(origin: LngLat, x: number, y: number): LngLat {
+  return [origin[0] + x / (M_PER_DEG * Math.cos(rad(origin[1]))), origin[1] + y / M_PER_DEG]
+}
+
+export function pathLengthM(points: LngLat[]) {
+  return points.slice(1).reduce((sum, point, index) => sum + distanceM(points[index], point), 0)
+}
+
+export function ringAreaM2(ring: LngLat[]) {
+  if (ring.length < 3) return 0
+  const origin = ring[0]
+  let sum = 0
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const a = toLocal(origin, ring[j])
+    const b = toLocal(origin, ring[i])
+    sum += a.x * b.y - b.x * a.y
+  }
+  return Math.abs(sum) / 2
+}
+
+const kmValue = (km: number) => (km < 10 ? km.toFixed(2) : km.toFixed(1))
+
+export function formatKm(meters: number) {
+  return `${kmValue(meters / 1000)} km`
+}
+
+export function formatKm2(squareMeters: number) {
+  const km2 = squareMeters / 1e6
+  return `${km2 < 0.1 ? km2.toFixed(3) : kmValue(km2)} km²`
+}
+
+/** Distance and, for closed shapes, area, e.g. "1.20 × 0.80 km · 0.960 km²". Empty for markers. */
+export function shapeMeasurements(
+  tool: AnnotationTool,
+  geometry: AnnotationGeometry,
+  circle?: AnnotationCircle,
+): string[] {
+  if (geometry.type === 'Point') return []
+  if (geometry.type === 'LineString') return [formatKm(pathLengthM(geometry.coordinates))]
+  const ring = geometry.coordinates[0]
+  if (tool === 'circle' && circle) {
+    return [`r ${formatKm(circle.radiusM)}`, formatKm2(Math.PI * circle.radiusM ** 2)]
+  }
+  if (tool === 'rectangle' && ring.length >= 4) {
+    const width = distanceM(ring[0], ring[1])
+    const height = distanceM(ring[1], ring[2])
+    return [`${kmValue(width / 1000)} × ${formatKm(height)}`, formatKm2(ringAreaM2(ring))]
+  }
+  return [formatKm(pathLengthM(closeRing(ring))), formatKm2(ringAreaM2(ring))]
+}
+
+/** Where the arrowhead sits and which way it points, in degrees clockwise from north. */
+export function arrowHead(points: LngLat[]): { tip: LngLat; bearing: number } | null {
+  if (points.length < 2) return null
+  const tip = points[points.length - 1]
+  const back = toLocal(tip, points[points.length - 2])
+  if (Math.hypot(back.x, back.y) < 1) return null
+  return { tip, bearing: (Math.atan2(-back.x, -back.y) * 180) / Math.PI }
+}
+
+/** The AI chat's picked-area walls are 320 m tall; annotations reach that height once they span a few km. */
+const WALL_MIN_M = 80
+const WALL_MAX_M = 320
+
+/** Wall height scales with the shape so small areas don't turn into towers. */
+function wallHeightM(points: LngLat[]) {
+  const lngs = points.map(([lng]) => lng)
+  const lats = points.map(([, lat]) => lat)
+  const span = distanceM([Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)])
+  return Math.max(WALL_MIN_M, Math.min(WALL_MAX_M, span * 0.1))
+}
+
+export type AnnotationFeatureKind = 'line' | 'area' | 'head'
+
 type AnnotationFeature = {
   type: 'Feature'
-  properties: Record<string, string | number | boolean>
+  properties: {
+    id: string
+    kind: AnnotationFeatureKind
+    color: string
+    alpha: number
+    selected: boolean
+    wall: number
+    bearing?: number
+  }
   geometry: AnnotationGeometry
 }
 
-/** GeoJSON for the line, fill and arrowhead layers; markers and text are drawn as DOM labels. */
+/**
+ * GeoJSON for the ground outlines and the stacked 3D walls. List order is draw order from the top, so the
+ * collection runs bottom-up. Markers stay flat DOM dots, so they have no features here; arrowheads are points
+ * drawn as a fixed-size icon.
+ */
 export function annotationCollection(
   items: MapAnnotationItem[],
   selectedId: string | null,
   validity: Record<string, AnnotationValidity>,
 ) {
   const features: AnnotationFeature[] = []
-  for (const item of items) {
-    if (!item.visible || item.geometry.type === 'Point') continue
-    const { style } = item
-    const properties = {
+  for (const item of [...items].reverse()) {
+    const { geometry } = item
+    if (!item.visible || geometry.type === 'Point') continue
+    const base = {
       id: item.id,
-      color: style.color,
-      width: style.strokeWidth,
-      dashed: style.dashed,
-      fill: style.fillOpacity,
+      color: item.style.color,
+      alpha: item.opacity * (validity[item.id]?.state === 'invalid' ? 0.4 : 1),
       selected: item.id === selectedId,
-      faded: validity[item.id]?.state === 'invalid',
+      wall: wallHeightM(geometry.type === 'Polygon' ? geometry.coordinates[0] : geometry.coordinates),
     }
-    features.push({ type: 'Feature', properties, geometry: item.geometry })
-    if (item.tool === 'arrow' && item.geometry.type === 'LineString') {
-      const points = item.geometry.coordinates
-      const tip = points[points.length - 1]
+    if (geometry.type === 'Polygon') {
+      features.push({ type: 'Feature', properties: { ...base, kind: 'area' }, geometry })
+      continue
+    }
+    features.push({ type: 'Feature', properties: { ...base, kind: 'line' }, geometry })
+    const head = item.tool === 'arrow' ? arrowHead(geometry.coordinates) : null
+    if (head) {
       features.push({
         type: 'Feature',
-        properties: { ...properties, arrow: true, rotation: headingDeg(points[points.length - 2], tip) },
-        geometry: { type: 'Point', coordinates: tip },
+        properties: { ...base, kind: 'head', bearing: head.bearing },
+        geometry: { type: 'Point', coordinates: head.tip },
       })
     }
   }
