@@ -51,7 +51,7 @@ import {
   type ChatInteractionModel,
 } from './interactionModel'
 import { StoryView } from './story/StoryView'
-import { MUSSAFAH_LABEL, type StoryAiSnapshot, type StoryMapCapture } from './story/storyAiScenarios'
+import type { StoryAiSnapshot, StoryMapCapture } from './story/storyAiScenarios'
 import { StoryMapStatesContext, type StoryMapStates } from './story/storyMapStates'
 import { StoryAiModeBar, type StoryAiModeStatus } from './story/StoryAiModeBar'
 import { CHART_PERIOD_LABEL, isChartCard, periodPrompt, type ChatComponent } from './story/storyChartPeriod'
@@ -61,7 +61,8 @@ import {
   TOP_SCHOOLS_PROMPT,
   locationAnnotation,
   locationPrompt,
-  locationUsesRegion,
+  locationRegion,
+  snapshotRegion,
   topSchoolsAnnotation,
   type StoryLocation,
 } from './story/storyAnnotations'
@@ -419,6 +420,8 @@ export function CompactAssistantDemo() {
   const [hubMorphFrom, setHubMorphFrom] = useState<DOMRect | null>(null)
   /** Approach 2: story chart cards attached to the hub chatbox via "Add to chat". */
   const [storyChatComponents, setStoryChatComponents] = useState<ChatComponent[]>([])
+  /** Charts added while the chat panel is open; they live as pills in the rail composer. */
+  const [railChatComponents, setRailChatComponents] = useState<ChatComponent[]>([])
   const pendingStoryApplyRef = useRef<PendingStoryApply | null>(null)
   const [storySlideIndex, setStorySlideIndex] = useState(0)
   const [hubRailMode, setHubRailMode] = useState<'thread' | 'sessions'>('thread')
@@ -845,9 +848,14 @@ export function CompactAssistantDemo() {
     [activeConversationId, activeStoryId, clearStream, messages, startAssistantReply],
   )
 
-  /** Approach 2: attach a hovered chart card to the story chatbox. */
+  /** Approach 2: attach a hovered chart card to the open chat panel's composer, or else to the story chatbox. */
   const addStoryComponentToChat = useCallback(
     (component: ChatComponent, sourceRect: DOMRect) => {
+      if (open && hubRailMode === 'thread') {
+        setRailChatComponents((prev) => (prev.some((item) => item.id === component.id) ? prev : [...prev, component]))
+        composerRef.current?.insertMention({ id: `component-${component.id}`, name: component.label, categoryId: 'assets' })
+        return
+      }
       if (open) {
         settleReplies()
         setOpen(false)
@@ -858,7 +866,7 @@ export function CompactAssistantDemo() {
       if (open || !hubStoryOpen) setHubMorphFrom(sourceRect)
       setHubStoryOpen(true)
     },
-    [hubStoryOpen, open, settleReplies],
+    [hubRailMode, hubStoryOpen, open, settleReplies],
   )
 
   /** Approach 2: each attached chart is re-plotted for 2024–2025 as its chart appears in the reply. */
@@ -891,7 +899,7 @@ export function CompactAssistantDemo() {
             stateId,
             snapshot: stages[stages.length - 1].snapshot,
             title: `${attached.map((item) => item.label).join(' · ')} · ${CHART_PERIOD_LABEL}`,
-            tag: previous?.region ? MUSSAFAH_LABEL : 'Abu Dhabi',
+            tag: previous?.region ? snapshotRegion(previous).label : 'Abu Dhabi',
             meta: `${attached.length} ${attached.length === 1 ? 'chart' : 'charts'} re-plotted`,
           })
         : baseReply
@@ -899,6 +907,8 @@ export function CompactAssistantDemo() {
       setActiveConversationId(conversationId)
       clearStream()
       setStoryChatComponents([])
+      setRailChatComponents([])
+      setDraft('')
       setLandingChips([])
       setHubRailMode('thread')
       setSessionsOpen(false)
@@ -935,6 +945,13 @@ export function CompactAssistantDemo() {
       : !(ownsStoryAi && storyAi.snapshot?.annotation)
         ? TOP_SCHOOLS_PROMPT
         : undefined
+  /** Charts whose pills are still in the rail composer; while any are, the rail asks to re-plot them. */
+  const railComponentsInDraft = useMemo(
+    () => railChatComponents.filter((item) => draft.includes(`@${item.label}`)),
+    [draft, railChatComponents],
+  )
+  const railComponentPrompt =
+    railComponentsInDraft.length > 0 ? periodPrompt(railComponentsInDraft.map((item) => item.label)) : undefined
 
   /** Approach 2: the top 10 schools (in a picked location, when set) are annotated as the reply's chart appears. */
   const submitStoryAnnotation = useCallback(
@@ -942,16 +959,17 @@ export function CompactAssistantDemo() {
       if (streaming) return
       const slide = storySlideIndex
       const location = locationInDraft ? storyLocation : null
-      const region = location ? locationUsesRegion(location) : null
+      const region = location ? locationRegion(location) : null
       const annotation = location ? locationAnnotation(slide, location) : topSchoolsAnnotation(slide)
       const conversationId = activeConversationId ?? uid()
       const previous = ownsStoryAi ? storyAi.snapshot : null
       const filterLabels = previous?.filterLabels ?? {}
       const snapshot: StoryAiSnapshot = {
         cards: previous?.cards ?? null,
-        region: region ?? previous?.region ?? false,
+        // A location's own region replaces the previous one; city-wide prompts keep only the Mussafah focus.
+        region: location ? region !== null : Boolean(previous?.region && !previous.annotation?.location),
         areaEffect: previous?.areaEffect ?? null,
-        filterLabels: region ? { ...filterLabels, loc: MUSSAFAH_LABEL } : filterLabels,
+        filterLabels: region ? { ...filterLabels, loc: region.label } : filterLabels,
         periodCards: previous?.periodCards,
         annotation: location ? { slide, location } : { slide },
       }
@@ -1014,8 +1032,22 @@ export function CompactAssistantDemo() {
   }, [])
 
   const send = useCallback(() => {
+    if (railComponentsInDraft.length > 0 && !streaming) {
+      // A draft that is only the chart pills sends the default re-plot prompt.
+      const typed = railComponentsInDraft.reduce((text, item) => text.replaceAll(`@${item.label}`, ''), draft)
+      submitStoryComponents(typed.trim() ? draft : '', railComponentsInDraft)
+      return
+    }
     sendText(draft)
-  }, [draft, sendText])
+  }, [draft, railComponentsInDraft, sendText, streaming, submitStoryComponents])
+
+  const sendRailSuggested = useCallback(() => {
+    if (railComponentPrompt) {
+      if (!streaming) submitStoryComponents(railComponentPrompt, railComponentsInDraft)
+      return
+    }
+    submitStoryAnnotation()
+  }, [railComponentPrompt, railComponentsInDraft, streaming, submitStoryAnnotation, submitStoryComponents])
 
   useEffect(() => {
     if (!activeConversationId || streaming || !messages.some((msg) => msg.role === 'assistant')) return
@@ -1449,6 +1481,13 @@ export function CompactAssistantDemo() {
     setExpanded(false)
   }, [])
 
+  const openHubChat = useCallback(() => {
+    setHubRailMode('thread')
+    setSessionsOpen(false)
+    setOpen(true)
+    setExpanded(false)
+  }, [])
+
   const openStoryAsk = useCallback(
     ({
       story,
@@ -1744,8 +1783,8 @@ export function CompactAssistantDemo() {
         findingSlot={findingChrome}
         selectMode={storySelectMode}
         onSelectModeChange={storyActive && aiFeatures.selectTool ? setStorySelectMode : undefined}
-        suggestedPrompt={streaming ? undefined : storyAnnotationPrompt}
-        onSendSuggested={submitStoryAnnotation}
+        suggestedPrompt={streaming ? undefined : (railComponentPrompt ?? storyAnnotationPrompt)}
+        onSendSuggested={sendRailSuggested}
         onPickLocation={storyPrompts ? openLocationPicker : undefined}
       />
       {locationPickerOpen ? (
@@ -1883,6 +1922,7 @@ export function CompactAssistantDemo() {
                 chips={landingChips}
                 onRemoveChip={(id) => setLandingChips((prev) => prev.filter((c) => c.id !== id))}
                 onOpenSessions={openHubSessions}
+                onOpenChat={openHubChat}
                 focusToken={landingFocusToken}
                 exiting={hubThreadRail}
                 placement={storyActive ? 'story' : 'landing'}

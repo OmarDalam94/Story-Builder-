@@ -29,10 +29,14 @@ const HIT_PX = 6
 
 export const ANNOTATION_HIT_LAYERS = [
   'story-user-annotation-fill',
+  'story-user-annotation-area-line',
+  'story-user-annotation-area-dash',
   'story-user-annotation-line',
   'story-user-annotation-dash',
   'story-user-annotation-arrow',
 ]
+/** Areas sit on the ground below the story's heat disks and columns. */
+const AREA_BEFORE_LAYER = 'story-junctions-halo'
 
 const empty = () => ({ type: 'FeatureCollection' as const, features: [] })
 
@@ -64,31 +68,43 @@ export function mountAnnotationLayers(map: mapboxgl.Map) {
   map.addSource(SOURCE, { type: 'geojson', data: empty() })
   map.addSource(DRAFT_SOURCE, { type: 'geojson', data: empty() })
   const faded = (value: number) => ['case', ['get', 'faded'], value * 0.4, value]
-  const strokes = ['!=', ['geometry-type'], 'Point']
-  map.addLayer({
-    id: 'story-user-annotation-fill',
-    type: 'fill',
-    source: SOURCE,
-    filter: ['==', ['geometry-type'], 'Polygon'],
-    paint: {
-      'fill-color': ['get', 'color'],
-      'fill-opacity': ['*', ['get', 'fill'], ['case', ['get', 'faded'], 0.4, 1]],
-    },
-  })
-  for (const dashed of [false, true]) {
-    map.addLayer({
-      id: dashed ? 'story-user-annotation-dash' : 'story-user-annotation-line',
-      type: 'line',
+  const areaBefore = map.getLayer(AREA_BEFORE_LAYER) ? AREA_BEFORE_LAYER : undefined
+  map.addLayer(
+    {
+      id: 'story-user-annotation-fill',
+      type: 'fill',
       source: SOURCE,
-      filter: ['all', strokes, dashed ? ['get', 'dashed'] : ['!', ['get', 'dashed']]],
-      layout: { 'line-join': 'round', 'line-cap': dashed ? 'butt' : 'round' },
+      filter: ['==', ['geometry-type'], 'Polygon'],
       paint: {
-        'line-color': ['get', 'color'],
-        'line-width': ['get', 'width'],
-        'line-opacity': faded(1) as mapboxgl.ExpressionSpecification,
-        ...(dashed ? { 'line-dasharray': [2, 1.6] } : {}),
+        'fill-color': ['get', 'color'],
+        'fill-opacity': ['*', ['get', 'fill'], ['case', ['get', 'faded'], 0.4, 1]],
       },
-    })
+    },
+    areaBefore,
+  )
+  for (const area of [true, false]) {
+    for (const dashed of [false, true]) {
+      map.addLayer(
+        {
+          id: `story-user-annotation-${area ? 'area-' : ''}${dashed ? 'dash' : 'line'}`,
+          type: 'line',
+          source: SOURCE,
+          filter: [
+            'all',
+            ['==', ['geometry-type'], area ? 'Polygon' : 'LineString'],
+            dashed ? ['get', 'dashed'] : ['!', ['get', 'dashed']],
+          ],
+          layout: { 'line-join': 'round', 'line-cap': dashed ? 'butt' : 'round' },
+          paint: {
+            'line-color': ['get', 'color'],
+            'line-width': ['get', 'width'],
+            'line-opacity': faded(1) as mapboxgl.ExpressionSpecification,
+            ...(dashed ? { 'line-dasharray': [2, 1.6] } : {}),
+          },
+        },
+        area ? areaBefore : undefined,
+      )
+    }
   }
   map.addLayer({
     id: 'story-user-annotation-arrow',

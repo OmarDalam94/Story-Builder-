@@ -1043,7 +1043,9 @@ export function StoryMap({
     }
     if (region && regionChanged) {
       frame.region = region
-      frame.regionGeometry = region.columns.map(([lng, lat]) => ring(lng, lat, COLUMN_RADIUS_M, 14))
+      frame.regionGeometry = region.columns.map(([lng, lat]) =>
+        ring(lng, lat, region.columnRadiusM ?? COLUMN_RADIUS_M, 14),
+      )
       frame.scales = {
         ...frame.scales,
         regionColumns: filled(region.columns.length, 0),

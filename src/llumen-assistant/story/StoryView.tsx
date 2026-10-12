@@ -96,7 +96,6 @@ import { StorySelectLayer, type StorySelectArea, type StorySelection } from './S
 import {
   AREA_FILTER_LABELS,
   AREA_PROMPT,
-  MUSSAFAH_BUSY,
   MUSSAFAH_LABEL,
   MUSSAFAH_LOAD_X,
   MUSSAFAH_MAX_HEIGHT_M,
@@ -107,6 +106,7 @@ import {
   countInPolygon,
   mussafahInsight,
   mussafahPrompt,
+  regionBusyJunctions,
   regionColumnHeights,
   regionJunctionRadii,
   type StoryAiSnapshot,
@@ -123,7 +123,7 @@ import {
   type ChatComponent,
 } from './storyChartPeriod'
 import { DEMO_COLUMNS, DEMO_JUNCTIONS } from './storyDemoMapData'
-import { locationAnnotation, topSchoolsAnnotation } from './storyAnnotations'
+import { locationAnnotation, snapshotRegion, topSchoolsAnnotation } from './storyAnnotations'
 import { StoryComparisonModal } from './StoryComparisonModal'
 import { comparisonOptions, comparisonPhase, type ComparisonMapOption } from './storyComparison'
 import { createCameraLink } from './storyCameraLink'
@@ -492,7 +492,7 @@ export function StoryView({
       const restored = CHART_CARD_ORDER.filter((id) => visibleAfter.includes(id) && !visibleBefore.includes(id))
       setRestoredCards(restored.length > 0 && !snapshot?.cards ? { ids: restored, key } : null)
       setAiFocus(snapshot?.cards ? { cards: snapshot.cards, key } : null)
-      setAiRegion(snapshot?.region ? MUSSAFAH_REGION : null)
+      setAiRegion(snapshot?.region ? snapshotRegion(snapshot) : null)
       setAreaEffect(snapshot?.areaEffect ?? null)
       setFiltersBySlide(nextFilters)
       setFiltersBeforeAi(snapshot ? base : null)
@@ -585,7 +585,7 @@ export function StoryView({
     onSlideIndexChange?.(activeSlideIndex)
   }, [activeSlideIndex, onSlideIndexChange])
   const regionInsight = useMemo(() => (aiRegion ? mussafahInsight(framePhase) : null), [aiRegion, framePhase])
-  const legendPlace = aiRegion ? MUSSAFAH_LABEL : 'Abu Dhabi'
+  const legendPlace = aiRegion ? aiRegion.label : 'Abu Dhabi'
   const mainLegend = aiRegion ? { ...scene.legend, junctionCount: aiRegion.junctions.length } : scene.legend
   const annotationData = useMemo<AnnotationData>(() => {
     const state = sceneState(baseScene)
@@ -916,30 +916,54 @@ export function StoryView({
         {children}
         {chattable ? (
           <div
-            className={`${styles.cardActions}${storyMode === 'edit' ? ` ${styles.cardActionsEditing}` : ''}`}
+            className={`${styles.cardActions}${menuOpen ? ` ${styles.cardActionsOpen}` : ''}`}
             role="toolbar"
             aria-label={`${title} actions`}
           >
-            <button type="button" className={styles.cardAction} onClick={(event) => addCardToChat(id, event.currentTarget)}>
-              <ChatCircleText size={14} aria-hidden />
-              Add to chat
+            <button
+              type="button"
+              className={`${styles.cardAction} ${styles.cardActionIcon}`}
+              aria-label={`Add ${title} to chat`}
+              title="Add to chat"
+              onClick={(event) => addCardToChat(id, event.currentTarget)}
+            >
+              <ChatCircleText size={16} aria-hidden />
             </button>
-            <button type="button" className={styles.cardAction}>
-              <Sparkle size={14} aria-hidden />
-              Generate
+            <button
+              type="button"
+              className={`${styles.cardAction} ${styles.cardActionIcon}`}
+              aria-label={`Generate from ${title}`}
+              title="Generate"
+            >
+              <Sparkle size={16} aria-hidden />
             </button>
-            {storyMode === 'edit' ? null : (
+            {storyMode === 'edit' ? (
+              <button
+                type="button"
+                data-card-menu-trigger
+                className={`${styles.cardAction} ${styles.cardActionIcon}${menuOpen ? ` ${styles.cardActionActive}` : ''}`}
+                aria-label={`More options for ${title}`}
+                title="More options"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-controls={menuOpen ? 'insight-card-menu' : undefined}
+                onClick={(event) => toggleCardMenu(id, event.currentTarget)}
+              >
+                <DotsThree size={16} weight="bold" aria-hidden />
+              </button>
+            ) : (
               <button
                 type="button"
                 className={`${styles.cardAction} ${styles.cardActionIcon}`}
                 aria-label={`More options for ${title}`}
+                title="More options"
               >
                 <DotsThree size={16} weight="bold" aria-hidden />
               </button>
             )}
           </div>
         ) : null}
-        {storyMode === 'edit' ? (
+        {storyMode === 'edit' && !chattable ? (
           <button
             type="button"
             data-card-menu-trigger
@@ -1531,7 +1555,7 @@ export function StoryView({
           <h2 className={styles.summaryTitle}>Executive Summary</h2>
           {aiRegion && regionInsight ? (
             <p className={styles.summaryBody}>
-              {MUSSAFAH_LABEL}&apos;s traffic volume rose{' '}
+              {aiRegion.label}&apos;s traffic volume rose{' '}
               <em className={styles.summaryEmphasis}>14% year over year</em> in {MUSSAFAH_PERIOD}, peaking at
               11.8k vehicles per hour on the E30 approach. Average junction load climbed to{' '}
               <em className={styles.summaryEmphasis}>
@@ -1539,7 +1563,7 @@ export function StoryView({
               </em>
               , with{' '}
               <em className={styles.summaryEmphasis}>
-                {MUSSAFAH_BUSY} of {aiRegion.junctions.length} junctions
+                {regionBusyJunctions(aiRegion)} of {aiRegion.junctions.length} junctions
               </em>{' '}
               over capacity during the 06:00–09:00 shift change.
             </p>
@@ -1724,7 +1748,7 @@ export function StoryView({
               stateId,
               snapshot,
               title: `${Object.values(AREA_FILTER_LABELS).join(' · ')} in the selected area`,
-              tag: aiRegion ? MUSSAFAH_LABEL : 'Abu Dhabi',
+              tag: aiRegion ? aiRegion.label : 'Abu Dhabi',
               meta: `${stats.columns} columns / ${stats.junctions} disks`,
             })
           : reply,

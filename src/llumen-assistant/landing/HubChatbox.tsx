@@ -5,6 +5,7 @@ import {
   ArrowUp,
   At,
   ChartLineUp,
+  ChatsCircle,
   ChatText,
   ClockCounterClockwise,
   File,
@@ -199,6 +200,8 @@ export type HubChatboxProps = {
   chips?: LandingContextChip[]
   onRemoveChip?: (id: string) => void
   onOpenSessions: () => void
+  /** Opens the AI chat panel; the button only renders when set. */
+  onOpenChat?: () => void
   focusToken?: number
   exiting?: boolean
   placement?: 'landing' | 'story'
@@ -242,6 +245,7 @@ export function HubChatbox({
   chips = [],
   onRemoveChip,
   onOpenSessions,
+  onOpenChat,
   focusToken = 0,
   exiting = false,
   placement = 'landing',
@@ -632,6 +636,22 @@ export function HubChatbox({
     syncEditor()
   }
 
+  const openChatButton = (tabIndex?: number) =>
+    onOpenChat ? (
+      <button
+        type="button"
+        className={styles.iconAction}
+        aria-label="Open AI chat panel"
+        title="Open AI chat panel"
+        disabled={interactionLocked}
+        tabIndex={tabIndex}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onOpenChat}
+      >
+        <ChatsCircle size={18} weight="regular" aria-hidden />
+      </button>
+    ) : null
+
   const showPlaceholder = !toasting && editorEmpty && files.length === 0
   const placeholderText = components.length > 0 ? 'Ask about the attached chart…' : 'Ask Llumen anything…'
   const placeholder = showPlaceholder ? placeholderText : ''
@@ -827,6 +847,7 @@ export function HubChatbox({
           ) : null}
           {idle ? (
             <div className={styles.composeActions}>
+              {openChatButton()}
               <button
                 type="button"
                 className={styles.iconAction}
@@ -919,6 +940,7 @@ export function HubChatbox({
               </div>
               {expanded ? (
                 <div className={styles.toolbarRight}>
+                  {openChatButton(expanded ? 0 : -1)}
                   <button
                     type="button"
                     className={styles.iconAction}
