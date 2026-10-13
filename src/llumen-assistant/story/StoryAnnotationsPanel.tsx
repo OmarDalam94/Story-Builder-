@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   ArrowCounterClockwise,
   ArrowUpRight,
+  Check,
   Circle,
   DotsSixVertical,
   DotsThree,
@@ -68,6 +69,48 @@ function rowMeta(item: MapAnnotationItem) {
   if (measured) return measured
   if (item.style.text) return item.style.text
   return item.context.anchor === 'feature' ? contextSummary(item.context) : 'Point on the map'
+}
+
+const MARQUEE_GAP_PX = 24
+const MARQUEE_PX_PER_S = 40
+
+/** Truncated text that scrolls like a ticker while hovered, so the whole of it can be read. */
+function MarqueeText({ text, className }: { text: string; className: string }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [distance, setDistance] = useState<number | null>(null)
+
+  const start = () => {
+    const node = ref.current
+    if (node && node.scrollWidth > node.clientWidth) setDistance(node.scrollWidth + MARQUEE_GAP_PX)
+  }
+
+  const style = distance
+    ? ({
+        '--marquee-gap': `${MARQUEE_GAP_PX}px`,
+        '--marquee-distance': `${distance}px`,
+        '--marquee-duration': `${distance / MARQUEE_PX_PER_S}s`,
+      } as CSSProperties)
+    : undefined
+
+  return (
+    <span
+      ref={ref}
+      className={`${className}${distance ? ` ${styles.marquee}` : ''}`}
+      style={style}
+      title={text}
+      onMouseEnter={start}
+      onMouseLeave={() => setDistance(null)}
+    >
+      {distance ? (
+        <span className={styles.marqueeTrack}>
+          <span>{text}</span>
+          <span aria-hidden>{text}</span>
+        </span>
+      ) : (
+        text
+      )}
+    </span>
+  )
 }
 
 type PanelProps = {
@@ -414,7 +457,7 @@ export function StoryAnnotationsPanel({
                     </span>
                     <span className={styles.rowCopy}>
                       <span className={styles.rowName}>{item.name}</span>
-                      <span className={styles.rowMeta}>{rowMeta(item)}</span>
+                      <MarqueeText className={styles.rowMeta} text={rowMeta(item)} />
                     </span>
                   </button>
                   <button
@@ -433,11 +476,15 @@ export function StoryAnnotationsPanel({
                         type="button"
                         className={`${styles.iconBtn}${editing ? ` ${styles.iconBtnActive}` : ''}`}
                         aria-label={`Edit ${item.name} shape`}
-                        title="Edit shape"
+                        title={editing ? 'Done editing' : 'Edit shape'}
                         aria-pressed={editing}
                         onClick={() => (editing ? onFinishEditing() : onEdit(item.id))}
                       >
-                        <PencilSimple size={16} weight="regular" aria-hidden />
+                        {editing ? (
+                          <Check size={16} weight="bold" aria-hidden />
+                        ) : (
+                          <PencilSimple size={16} weight="regular" aria-hidden />
+                        )}
                       </button>
                       <button
                         type="button"

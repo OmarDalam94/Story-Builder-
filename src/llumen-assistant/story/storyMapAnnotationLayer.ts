@@ -50,8 +50,8 @@ const wallGroup = (alpha: number) => Math.round(alpha * 100)
 const GROUND_LAYERS = ['story-user-annotation-area', 'story-user-annotation-line']
 
 /** Arrowheads are a flat icon in screen pixels, so they keep one small size however long the arrow is. */
-const HEAD_LENGTH_PX = 13
-const HEAD_WIDTH_PX = 12
+const HEAD_LENGTH_PX = 22
+const HEAD_WIDTH_PX = 20
 const HEAD_PAD_PX = 2
 const HEAD_RATIO = 2
 const headImage = (color: string) => `story-user-annotation-head-${color.toLowerCase()}`
